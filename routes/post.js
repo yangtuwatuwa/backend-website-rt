@@ -3,6 +3,6 @@ import { regist } from "../controller/registandlogin.js";
 
 const app = e()
 
-app.get("/regist", regist)
+app.post("/regist", regist)
 
 export default app
