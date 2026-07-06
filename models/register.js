@@ -12,3 +12,5 @@ async function registerAccount(username , password , email , role) {
     }
 
 }
+
+export default registerAccount;
