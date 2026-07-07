@@ -17,10 +17,9 @@ export async function argonhash(inputPassword) {
     }
 }
 
-export async function argonverify(password) {
+export async function argonverify(password, hash) {
     try {
-        const hashpass = await argonhash()
-        const rehash = await argon2.verify(hashpass, password )
+        const rehash = await argon2.verify(hash, password )
         if (rehash) {
             console.log("cekring")
             return true
@@ -30,6 +29,6 @@ export async function argonverify(password) {
         }
     } catch (err) {
         console.log("helpers say: "+ err);
-        return "salahhh"
+        return false
     }
 }
