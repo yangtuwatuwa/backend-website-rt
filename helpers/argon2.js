@@ -17,9 +17,9 @@ export async function argonhash(inputPassword) {
     }
 }
 
-export async function argonverify(password, hash) {
+export async function argonverify(hashpass, password) {
     try {
-        const rehash = await argon2.verify(hash, password )
+        const rehash = await argon2.verify(hashpass, password )
         if (rehash) {
             console.log("cekring")
             return true

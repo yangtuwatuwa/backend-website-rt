@@ -1,7 +1,8 @@
 import registerAccount from "../models/register.js";
-import findAccount from "../models/login.js";
+import loginAccount from "../models/login.js";
 import { argonhash, argonverify } from "../helpers/argon2.js";
 import { encryptEmails } from "../helpers/ciihper.js";
+import { generateJwt } from "../helpers/jwttoken.js";
 
 export async function register(username, password,email ,role ){
     const pasplaintext = await argonhash(password)
@@ -9,15 +10,26 @@ export async function register(username, password,email ,role ){
     const hasilny = await registerAccount(username , pasplaintext , emailsEncrypt , role)
     return hasilny; 
 }
-
-export async function login(username, password){
-    const user = await findAccount(username)
-    if (!user || user.error) {
-        return "user tidak ditemukan"
+export async function loginUser(username, password){
+    const hasilny = await loginAccount(username)
+    if (hasilny === "error") {
+        return "error"
     }
-    const cekPassword = await argonverify(password, user.password)
-    if (!cekPassword) {
+    if (hasilny.length === 0) {
+        return "username tidak ditemukan"
+    }
+
+
+    const user = hasilny[0]
+    const checkPassword = await argonverify(user.password, password)
+    
+    if (checkPassword === true) {
+         const token = generateJwt({
+            id:user.id,
+            role:user.role
+         })
+        return { status: "login berhasil", user: user, token:token }
+    } else {
         return "password salah"
     }
-    return { status: "success", user: { id: user.id, username: user.username, email: user.email, role: user.role } }
 }

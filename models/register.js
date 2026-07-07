@@ -8,7 +8,7 @@ async function registerAccount(username , password , email , role) {
         return result;
     } catch (err) {
         console.log("error bagian:" + err)
-        return { error: true, message: err.message };
+        return "error karena: "+ err
     }
 
 }
