@@ -4,4 +4,4 @@ import express from "express"
 
 const app = express()
 
-app.get("/lifestatus", )
+// app.get("/lifestatus", )

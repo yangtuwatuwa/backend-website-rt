@@ -1,12 +1,13 @@
 import express from "express"
-import dotenv from "dotenv"
-dotenv.config({ override: true })
+
 import cors from "cors"
 import bodyParser from "body-parser"
 import helemet from "helmet"
-import getRoutes from "./routes/get.js"
+
 import postRoutes from "./routes/post.js"
 import dotenv from "dotenv"
+import datasensi from "./routes/adminAcces.js"
+
 dotenv.config()
 const app = express()
 const port =3333
@@ -17,9 +18,9 @@ app.use(bodyParser.json())
 
 //routes 
 
-app.use("/",getRoutes)
-app.use("/post", postRoutes)
 
+app.use("/post", postRoutes)
+app.use("/admin", datasensi)
 app.listen(port, ()=>{
     console.log("berjalan di http://localhost:"+port)
 })

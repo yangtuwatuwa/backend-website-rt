@@ -10,6 +10,12 @@ import z from "zod";
      role: z.string()
     })
 
+ export const residentSchema = z.object({
+     noKK: z.string().min(5, "No KK minimal 5 karakter"),
+     home: z.coerce.number().int().positive("ID Rumah harus berupa angka positif"),
+     KepalaKeluarga: z.coerce.number().int().positive("ID Kepala Keluarga harus berupa angka positif")
+ })
+
 
 
 export const verifyInput = (schema) => {
