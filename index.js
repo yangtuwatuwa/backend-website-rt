@@ -7,6 +7,7 @@ import helemet from "helmet"
 import postRoutes from "./routes/post.js"
 import dotenv from "dotenv"
 import datasensi from "./routes/adminAcces.js"
+import { apiLimiter } from "./middlewares/rateLimiter.js"
 
 dotenv.config()
 const app = express()
@@ -15,6 +16,16 @@ const port =3333
 app.use(helemet())
 app.use(cors())
 app.use(bodyParser.json())
+app.use(apiLimiter)
+
+// Logger buat mantau request masuk masbro
+app.use((req, res, next) => {
+    console.log(`🚀 Request Masuk: ${req.method} ${req.url}`)
+    if (req.method !== 'GET') {
+        console.log(`📦 Body:`, req.body)
+    }
+    next()
+})
 
 //routes 
 

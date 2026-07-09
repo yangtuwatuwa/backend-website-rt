@@ -16,6 +16,10 @@ import z from "zod";
      KepalaKeluarga: z.coerce.number().int().positive("ID Kepala Keluarga harus berupa angka positif")
  })
 
+ export const updateResidentSchema = z.object({
+     noKK: z.string().min(5, "No KK minimal 5 karakter")
+ })
+
 
 
 export const verifyInput = (schema) => {

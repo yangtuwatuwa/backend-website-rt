@@ -1,5 +1,6 @@
 import { inputWarganya, getWarganya } from "../models/resident.js";
 import { encryptEmails, decryptEmails } from "../helpers/ciihper.js";
+import { maskData } from "../utils/masking.js";
 
 export async function logicWarganya(noKK, houseId,kepalaKeluarga){
     
@@ -25,7 +26,12 @@ export async function listWarganya() {
             try {
                 return {
                     ...w,
-                    no_kk: decryptEmails(w.no_kk)
+                    no_kk: maskData(decryptEmails(w.no_kk)),
+                    house_blok: w.house_blok ? decryptEmails(w.house_blok) : null,
+                    house_nomor: w.house_nomor ? decryptEmails(w.house_nomor) : null,
+                    house_alamat: w.house_alamat ? decryptEmails(w.house_alamat) : null,
+                    kepala_keluarga_nik: w.kepala_keluarga_nik ? maskData(decryptEmails(w.kepala_keluarga_nik)) : null,
+                    kepala_keluarga_nohp: w.kepala_keluarga_nohp ? decryptEmails(w.kepala_keluarga_nohp) : null
                 }
             } catch (decErr) {
                 return w;
