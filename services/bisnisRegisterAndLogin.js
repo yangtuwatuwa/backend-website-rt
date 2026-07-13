@@ -4,10 +4,10 @@ import { argonhash, argonverify } from "../helpers/argon2.js";
 import { encryptEmails } from "../helpers/ciihper.js";
 import { generateJwt } from "../helpers/jwttoken.js";
 
-export async function register(username, password,email ,role ){
+export async function register(username, password, email, role = "warga") {
     const pasplaintext = await argonhash(password)
     const emailsEncrypt = await encryptEmails(email)
-    const hasilny = await registerAccount(username , pasplaintext , emailsEncrypt , role)
+    const hasilny = await registerAccount(username, pasplaintext, emailsEncrypt, role)
     return hasilny; 
 }
 export async function loginUser(username, password){

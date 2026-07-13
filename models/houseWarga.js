@@ -21,3 +21,14 @@ export async function getHouses() {
         return "error salah get house: " + error
     }
 }
+
+export async function getHouseById(id) {
+    const sqlcommand = "SELECT * FROM house WHERE id = ?"
+    try {
+        const [result] = await db.execute(sqlcommand, [id])
+        return result[0];
+    } catch (err) {
+        console.log("error getHouseById:", err)
+        return "error karena: " + err
+    }
+}

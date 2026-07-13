@@ -1,4 +1,4 @@
-import { warganya, getWargas, getPendingWarga, updateWargaStatus } from "../models/inputwarganya.js";
+import { warganya, getWargas, getPendingWarga, updateWargaStatus, updateWargaFields } from "../models/inputwarganya.js";
 import { encryptEmails, decryptEmails } from "../helpers/ciihper.js";
 import { maskData } from "../utils/masking.js";
 
@@ -88,5 +88,23 @@ export async function verifyWarga(id, status) {
     } catch (err) {
         console.log(err)
         return "error mas di service: " + err
+    }
+}
+
+export async function updateWargaService(id, data) {
+    const fieldsToUpdate = {};
+    if (data.nama !== undefined) fieldsToUpdate.nama = data.nama;
+    if (data.jenisKelamin !== undefined) fieldsToUpdate.jenis_kelamin = data.jenisKelamin;
+    if (data.tglLahir !== undefined) fieldsToUpdate.tgl_lahir = encryptEmails(data.tglLahir);
+    if (data.statusHidup !== undefined) fieldsToUpdate.status_hidup = data.statusHidup;
+    if (data.noHp !== undefined) fieldsToUpdate.no_hp = encryptEmails(String(data.noHp));
+    if (data.umur !== undefined) fieldsToUpdate.umur = data.umur;
+
+    try {
+        const hasilnya = await updateWargaFields(id, fieldsToUpdate);
+        return hasilnya;
+    } catch (err) {
+        console.log(err);
+        return "error updateWargaService: " + err;
     }
 }

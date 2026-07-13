@@ -1,5 +1,6 @@
-import { checkFamilyAccountExists, createFamilyAccount } from "../models/createAccount.js";
+import { checkFamilyAccountExists, createFamilyAccount, createStaffAccount } from "../models/createAccount.js";
 import { argonhash } from "../helpers/argon2.js";
+import { encryptEmails } from "../helpers/ciihper.js";
 
 function generateTempPassword() {
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
@@ -30,6 +31,18 @@ export async function generateWargaAccount(familyId) {
 
         // 5. Kembalikan username & password plain untuk dicatat RT
         return { username, temporaryPassword: tempPassword };
+    } catch (err) {
+        console.log(err);
+        return "error karena: " + err;
+    }
+}
+
+export async function generateStaffAccount(username, password, email, role) {
+    try {
+        const passwordHash = await argonhash(password);
+        const encryptedEmail = email ? encryptEmails(email) : null;
+        await createStaffAccount(username, passwordHash, encryptedEmail, role);
+        return { username };
     } catch (err) {
         console.log(err);
         return "error karena: " + err;

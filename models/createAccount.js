@@ -21,3 +21,14 @@ export async function createFamilyAccount(username, passwordHash, familyId) {
         throw err;
     }
 }
+
+export async function createStaffAccount(username, passwordHash, email, role) {
+    const sqlcommand = "INSERT INTO acount (id, username, password, email, role, family_id, must_change_password) VALUES (NULL, ?, ?, ?, ?, NULL, 1)";
+    try {
+        const [result] = await db.execute(sqlcommand, [username, passwordHash, email, role]);
+        return result;
+    } catch (err) {
+        console.log("error createStaffAccount:", err);
+        throw err;
+    }
+}

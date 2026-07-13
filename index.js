@@ -9,6 +9,7 @@ import dotenv from "dotenv"
 import datasensi from "./routes/adminAcces.js"
 import { apiLimiter } from "./middlewares/rateLimiter.js"
 import masuk from "./middlewares/reqmasuk.js"
+import { startNotificationScheduler } from "./services/notificationScheduler.js"
 
 dotenv.config()
 const app = express()
@@ -28,6 +29,10 @@ app.use("/warga")
 app.use("/post", postRoutes)
 app.use("/admin", datasensi)
 app.use("/resident", userAccesRoutes)
+
+// Inisialisasi scheduler reminder otomatis tagihan IPL
+startNotificationScheduler()
+
 app.listen(port, ()=>{
     console.log("berjalan di http://localhost:"+port)
 })
