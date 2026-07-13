@@ -3,7 +3,7 @@ import express from "express"
 import cors from "cors"
 import bodyParser from "body-parser"
 import helemet from "helmet"
-
+import userAccesRoutes from "./routes/userAcces.js"
 import postRoutes from "./routes/post.js"
 import dotenv from "dotenv"
 import datasensi from "./routes/adminAcces.js"
@@ -27,6 +27,7 @@ app.use(masuk)
 app.use("/warga")
 app.use("/post", postRoutes)
 app.use("/admin", datasensi)
+app.use("/resident", userAccesRoutes)
 app.listen(port, ()=>{
     console.log("berjalan di http://localhost:"+port)
 })

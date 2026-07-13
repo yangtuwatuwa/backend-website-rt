@@ -10,7 +10,7 @@ const response = (req,res,next) => {
     
      if(!veriv){
         return res.status(401).json({
-            pesan:"username not exit"
+            pesan:"username not exit or you dont have jwt token"
         })
      }
 
