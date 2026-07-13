@@ -20,6 +20,17 @@ import z from "zod";
      noKK: z.string().min(5, "No KK minimal 5 karakter")
  })
 
+ export const announcementSchema = z.object({
+     judul: z.string().min(1, "Judul tidak boleh kosong").max(50, "Judul maksimal 50 karakter"),
+     isi: z.string().min(1, "Isi tidak boleh kosong").max(1000, "Isi maksimal 1000 karakter")
+ })
+
+ export const updateAnnouncementSchema = z.object({
+     judul: z.string().min(1, "Judul tidak boleh kosong").max(50, "Judul maksimal 50 karakter").optional(),
+     isi: z.string().min(1, "Isi tidak boleh kosong").max(1000, "Isi maksimal 1000 karakter").optional()
+ })
+
+
 
 
 export const verifyInput = (schema) => {

@@ -28,7 +28,11 @@ export async function loginUser(username, password){
             id:user.id,
             role:user.role
          })
-        return { status: "login berhasil", user: user, token:token }
+         
+         if (user.must_change_password === 1) {
+             return { status: "must_change_password", user: user, token: token }
+         }
+         return { status: "login berhasil", user: user, token:token }
     } else {
         return "password salah"
     }

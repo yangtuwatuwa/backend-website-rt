@@ -1,4 +1,4 @@
-﻿# 💌 Surat Cinta Untuk Frontend
+# 💌 Surat Cinta Untuk Frontend
 
 > Halo tim frontend! Baca ini dulu sebelum mulai integrasi ya, biar gak pusing dan gak bolak-balik nanya. Sayang banget kalau sampe salah urutan 🙏
 
@@ -14,7 +14,22 @@ http://172.20.32.62:3333
 
 ## ⚠️ Wajib Baca: Urutan Pengisian Data
 
-Sistem ini punya **relasi antar tabel (Foreign Key)**. Artinya, data harus dimasukkan dengan **urutan yang benar**. Kalau salah urutan, data **PASTI GAGAL** masuk ke database.
+> [!IMPORTANT]
+> ⚠️ **LOGIKA RELASI DATA (WAJIB DIPAHAMI FRONTEND!)** ⚠️
+>
+> Relasi data di database kita adalah: **Satu Rumah (`house`)** ditempati **Satu Keluarga (`family/KK`)**, dan **Satu Keluarga (`family/KK`)** berisi **Banyak Warga (`warga`)**.
+>
+> Saat ini terjadi bug di frontend di mana frontend memanggil `POST /admin/house` dan `POST /admin/resident` **tiap kali mendaftarkan satu individu warga**. Ini salah, karena membuat setiap warga seolah-olah jomblo yang punya rumah dan KK sendiri-sendiri!
+>
+> **Cara Kerja yang Benar:**
+> 1. **Jika mendaftarkan warga ke dalam Keluarga yang SUDAH ADA (Anggota Keluarga Baru):**
+>    - **JANGAN** buat Rumah baru (`POST /admin/house`) dan **JANGAN** buat KK baru (`POST /admin/resident`)!
+>    - Langsung tembak **`POST /admin/datawarga`** menggunakan `fammilyId` dan `houseId` dari keluarga/KK yang bersangkutan (ambil dari dropdown list keluarga yang sudah ada).
+> 2. **Jika mendaftarkan Keluarga yang BENAR-BENAR BARU (KK Baru & Rumah Baru):**
+>    - Baru jalankan alur lengkap secara sekuensial:
+>      `POST /admin/house` (Dapatkan `house_id`) ➔ `POST /admin/resident` (Dapatkan `family_id`) ➔ `POST /admin/datawarga`.
+
+Sistem ini punya **relasi antar tabel (Foreign Key)**. Artinya, data harus dimasukkan dengan **urutan yang benar** jika Anda mendaftarkan keluarga baru. Kalau salah urutan, data **PASTI GAGAL** masuk ke database.
 
 ```
 STEP 1          STEP 2              STEP 3
@@ -309,6 +324,160 @@ Content-Type: application/json
 {
   "no_kk": "3201234567890001"
 }
+```
+
+## 👥 Endpoint Khusus Warga (Butuh JWT Warga)
+
+---
+
+### `POST /resident/pengaduan` (Tabel `report`)
+> Warga membuat laporan pengaduan/keluhan lingkungan.
+
+**Method:** `POST`  
+**URL:** `http://172.20.32.62:3333/resident/pengaduan`
+
+**Request Body:**
+```json
+{
+  "isi": "Selokan mampet depan pos ronda",
+  "jenis_pengaduan": "Fasilitas Publik"
+}
+```
+
+**Response Sukses (200):**
+```json
+{
+  "response": 200,
+  "output": {
+    "pesan": { "fieldCount": 0, "affectedRows": 1, "insertId": 1 },
+    "token": null
+  },
+  "message": "pengaduan berhasil terkirim"
+}
+```
+
+---
+
+### `GET /resident/pengaduan` (Tabel `report`)
+> Warga mengecek status pengaduan keluarganya.
+
+**Method:** `GET`  
+**URL:** `http://172.20.32.62:3333/resident/pengaduan`
+
+**Response Sukses (200):**
+```json
+[
+  {
+    "id": 1,
+    "family_id": 5,
+    "isi": "Selokan mampet depan pos ronda",
+    "jenis_pengaduan": "Fasilitas Publik",
+    "status": "pending"
+  }
+]
+```
+
+---
+
+### `POST /resident/pengajuan` (Tabel `letter`)
+> Warga membuat laporan pengajuan surat baru.
+
+**Method:** `POST`  
+**URL:** `http://172.20.32.62:3333/resident/pengajuan`
+
+**Request Body:**
+```json
+{
+  "keperluan": "Bikin KTP Baru",
+  "jenis": "Administrasi"
+}
+```
+
+**Response Sukses (200):**
+```json
+{
+  "response": 200,
+  "output": {
+    "pesan": { "fieldCount": 0, "affectedRows": 1, "insertId": 1 },
+    "token": null
+  },
+  "message": "pengajuan berhasil dikirim"
+}
+```
+
+---
+
+### `GET /resident/pengajuan` (Tabel `letter`)
+> Warga mengecek status pengajuan surat keluarganya.
+
+**Method:** `GET`  
+**URL:** `http://172.20.32.62:3333/resident/pengajuan`
+
+**Response Sukses (200):**
+```json
+[
+  {
+    "id": 1,
+    "family_id": 5,
+    "keperluan": "Bikin KTP Baru",
+    "jenis": "Administrasi",
+    "status": "pending"
+  }
+]
+```
+
+---
+
+### `POST /resident/datawarga` (Tabel `warga` - Pending)
+> Warga mendaftarkan anggota keluarga baru secara mandiri. Data tidak langsung masuk resmi ke data keluarga, melainkan berstatus `pending` menunggu verifikasi (approve/reject) dari RT.
+>
+> 🔒 **Keamanan:** Frontend tidak perlu mengirim `fammilyId` dan `houseId` di request body. Server otomatis mengambil dari KK warga yang login untuk mencegah kecurangan/manipulasi data.
+
+**Method:** `POST`  
+**URL:** `http://172.20.32.62:3333/resident/datawarga`
+
+**Request Body:**
+```json
+{
+  "nik": "3201234567890012",
+  "nama": "Siti Aminah",
+  "jenisKelamin": "Perempuan",
+  "tglLahir": "1998-07-20",
+  "statusHidup": "Hidup",
+  "noHp": "08122334455",
+  "umur": 28
+}
+```
+
+**Response Sukses (200):**
+```json
+{
+  "response": 200,
+  "output": {
+    "pesan": { "fieldCount": 0, "affectedRows": 1, "insertId": 15 },
+    "token": null
+  },
+  "message": "pengajuan pendaftaran anggota keluarga berhasil terkirim, menunggu verifikasi RT"
+}
+```
+
+---
+
+### `GET /resident/announcement`
+> Warga melihat semua pengumuman resmi yang dipublikasikan oleh RT.
+
+**Method:** `GET`  
+**URL:** `http://172.20.32.62:3333/resident/announcement`
+
+**Response Sukses (200):**
+```json
+[
+  {
+    "id": 1,
+    "judul": "Gotong Royong",
+    "isi": "Ayo bersihkan lingkungan hari Minggu besok jam 08.00 WIB."
+  }
+]
 ```
 
 ---
