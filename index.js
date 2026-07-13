@@ -8,6 +8,7 @@ import postRoutes from "./routes/post.js"
 import dotenv from "dotenv"
 import datasensi from "./routes/adminAcces.js"
 import { apiLimiter } from "./middlewares/rateLimiter.js"
+import masuk from "./middlewares/reqmasuk.js"
 
 dotenv.config()
 const app = express()
@@ -19,17 +20,11 @@ app.use(bodyParser.json())
 app.use(apiLimiter)
 
 // Logger buat mantau request masuk masbro
-app.use((req, res, next) => {
-    console.log(`🚀 Request Masuk: ${req.method} ${req.url}`)
-    if (req.method !== 'GET') {
-        console.log(`📦 Body:`, req.body)
-    }
-    next()
-})
+app.use(masuk)
 
 //routes 
 
-
+app.use("/warga")
 app.use("/post", postRoutes)
 app.use("/admin", datasensi)
 app.listen(port, ()=>{
