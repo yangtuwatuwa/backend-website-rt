@@ -4,6 +4,7 @@ import jwtAuth from "../middlewares/validationJwt.js"
 import { addPengaduan, checkStatusPengaduan } from "../controllers/pengaduan.js"
 import { addPengajuan, checkStatusPengajuan } from "../controllers/pengajuan.js"
 import { getAnnouncementsController } from "../controllers/announcement.js"
+import { getAgendasController } from "../controllers/agenda.js"
 import { createWargaByResident, uploadSensitifDataController, downloadSensitifFileController, updateWargaDetailsController } from "../controllers/sensitifData.js"
 import { uploadSensitifMiddleware } from "../middlewares/multerConfig.js"
 
@@ -36,10 +37,19 @@ router.patch("/warga/:id", jwtAuth, updateWargaDetailsController)
 // Route Pengumuman Warga (Melihat Pengumuman)
 router.get("/announcement", jwtAuth, getAnnouncementsController)
 
+// Route Agenda Kegiatan Warga
+router.get("/agenda", jwtAuth, getAgendasController)
+
 // Route Keuangan / Pembayaran Warga Mandiri
 import { payIplController, payKasController, getFamilyPaymentsController } from "../controllers/financeController.js"
 router.post("/pay-ipl", jwtAuth, uploadSensitifMiddleware, payIplController)
 router.post("/pay-kas", jwtAuth, uploadSensitifMiddleware, payKasController)
 router.get("/my-payments", jwtAuth, getFamilyPaymentsController)
+
+// Route Vote Karyawan Terbaik
+import { getKaryawanListController, postVoteController, getVoteResultsController } from "../controllers/karyawan.js"
+router.get("/karyawan", jwtAuth, getKaryawanListController)
+router.post("/vote", jwtAuth, postVoteController)
+router.get("/vote/results", jwtAuth, getVoteResultsController)
 
 export default router

@@ -5,6 +5,8 @@ import { reviewPengajuan, approvePengajuan } from "../controllers/pengajuan.js"
 
 import { verifyInput, residentSchema, updateResidentSchema, announcementSchema, updateAnnouncementSchema } from "../middlewares/verivyGmail.js"
 import { createAnnouncementController, getAnnouncementsController, editAnnouncementController, removeAnnouncementController } from "../controllers/announcement.js"
+import { createAgendaController, getAgendasController, editAgendaController, removeAgendaController } from "../controllers/agenda.js"
+import { registerFamilyController } from "../controllers/familyRegistrationController.js"
 import jwtAuth from "../middlewares/validationJwt.js"
 import { checkRoles } from "../middlewares/checkRole.js"
 import { authLimiter } from "../middlewares/rateLimiter.js"
@@ -21,6 +23,7 @@ app.post("/reveal-warga/:id", authLimiter, checkRoles('rt'), revealWarga)
 app.post("/reveal-resident/:id", authLimiter, checkRoles('rt'), revealFamily)
 app.post("/create-account", checkRoles('rt'), createWargaAccountController)
 app.post("/create-staff-account", checkRoles('rt'), createStaffAccountController)
+app.post("/register-family", checkRoles('rt', 'sekretaris'), registerFamilyController)
 
 app.get("/pengaduan", checkRoles('rt', 'sekretaris'), reviewPengaduan)
 app.patch("/pengaduan/:id", checkRoles('rt', 'sekretaris'), approvePengaduan)
@@ -35,6 +38,12 @@ app.post("/announcement", verifyInput(announcementSchema), checkRoles('rt', 'sek
 app.get("/announcement", checkRoles('rt', 'sekretaris'), getAnnouncementsController)
 app.patch("/announcement/:id", verifyInput(updateAnnouncementSchema), checkRoles('rt', 'sekretaris'), editAnnouncementController)
 app.delete("/announcement/:id", checkRoles('rt', 'sekretaris'), removeAnnouncementController)
+
+// Route Agenda Kegiatan RT (CRUD)
+app.post("/agenda", checkRoles('rt', 'sekretaris'), createAgendaController)
+app.get("/agenda", checkRoles('rt', 'sekretaris'), getAgendasController)
+app.patch("/agenda/:id", checkRoles('rt', 'sekretaris'), editAgendaController)
+app.delete("/agenda/:id", checkRoles('rt', 'sekretaris'), removeAgendaController)
 
 
 app.post("/resident", verifyInput(residentSchema), checkRoles('rt', 'sekretaris'), inputData)

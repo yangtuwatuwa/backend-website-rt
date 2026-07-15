@@ -76,7 +76,7 @@ export async function getPendingWarga() {
         FROM warga w
         LEFT JOIN family f ON w.family_id = f.id
         LEFT JOIN house h ON w.house_id = h.id
-        WHERE w.status = 'pending'
+        WHERE w.status_data = 'pending'
     `
     try {
         const [hasilnya] = await db.execute(sqlcommand)

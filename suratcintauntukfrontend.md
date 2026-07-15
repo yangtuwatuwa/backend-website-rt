@@ -330,6 +330,51 @@ Content-Type: application/json
 
 ---
 
+### `GET /resident/getmyfamily/:id`
+> Mengambil data anggota keluarga milik warga yang sedang login (dilengkapi Proteksi Anti-Intip / ID Snooping 🛡️).
+
+**Method:** `GET`  
+**URL:** `http://172.20.32.62:3333/resident/getmyfamily/5`  
+**Headers:**
+```
+Authorization: Bearer <token_jwt_warga>
+```
+
+> ⚠️ **Sistem Proteksi Kepemilikan Data:**  
+> Backend mencocokkan `id` yang di-request di URL (`:id` family) dengan `family_id` milik token warga yang sedang login.  
+> Jika warga iseng nyoba nembak ID keluarga orang lain (misal `/resident/getmyfamily/6`), backend otomatis nolak dengan error **`403 Forbidden`**.
+
+**Response Sukses (200):**
+```json
+[
+  {
+    "warga_id": 10,
+    "nik": "320xxxxxxxxxx002",
+    "nama": "Ahmad Subarjo",
+    "jenis_kelamin": "Laki-laki",
+    "tgl_lahir": "1994-05-12",
+    "status_hidup": "Hidup",
+    "no_hp": "081298765432",
+    "umur": 30,
+    "family_id": 5,
+    "house_id": 3,
+    "house_blok": "B",
+    "house_nomor": "15",
+    "house_alamat": "Jl. Kamboja No. 15",
+    "house_status": "pribadi"
+  }
+]
+```
+
+**Response Error (403 Forbidden - Intip Keluarga Lain):**
+```json
+{
+  "pesan": "Akses ditolak, ini bukan data keluarga lu cuy!"
+}
+```
+
+---
+
 ### `POST /resident/pengaduan` (Tabel `report`)
 > Warga membuat laporan pengaduan/keluhan lingkungan.
 
@@ -476,6 +521,107 @@ Content-Type: application/json
     "id": 1,
     "judul": "Gotong Royong",
     "isi": "Ayo bersihkan lingkungan hari Minggu besok jam 08.00 WIB."
+  }
+]
+```
+
+---
+
+### `GET /resident/karyawan`
+> Ambil semua data kandidat karyawan (satpam, tukang kebun, petugas sampah) untuk ditampilkan di menu vote.
+
+**Method:** `GET`  
+**URL:** `http://172.20.32.62:3333/resident/karyawan`  
+**Headers:**
+```
+Authorization: Bearer <token_jwt_warga>
+```
+
+**Response Sukses (200):**
+```json
+[
+  {
+    "id": 1,
+    "nama": "Pak Joko",
+    "jabatan": "Satpam"
+  },
+  {
+    "id": 2,
+    "nama": "Pak Budi",
+    "jabatan": "Tukang Kebun"
+  }
+]
+```
+
+---
+
+### `POST /resident/vote`
+> Kirim pilihan vote warga. Setiap akun warga hanya diizinkan memilih **maksimal 1 kali**. Percobaan vote berikutnya akan ditolak dengan error 400.
+
+**Method:** `POST`  
+**URL:** `http://172.20.32.62:3333/resident/vote`  
+**Headers:**
+```
+Authorization: Bearer <token_jwt_warga>
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "karyawanId": 1
+}
+```
+
+**Response Sukses (200):**
+```json
+{
+  "response": 200,
+  "output": {
+    "pesan": {
+      "fieldCount": 0,
+      "affectedRows": 1,
+      "insertId": 1
+    },
+    "token": null
+  },
+  "message": "Vote lu berhasil dimasukkan masbro, mantap!"
+}
+```
+
+**Response Error (Sudah Pernah Vote) (400):**
+```json
+{
+  "pesan": "error: Lu udah ngevote masbro, cuma bisa 1 vote per akun!"
+}
+```
+
+---
+
+### `GET /resident/vote/results`
+> Ambil hasil rekapitulasi perolehan suara (vote) tiap karyawan secara real-time.
+
+**Method:** `GET`  
+**URL:** `http://172.20.32.62:3333/resident/vote/results`  
+**Headers:**
+```
+Authorization: Bearer <token_jwt_warga>
+```
+
+**Response Sukses (200):**
+```json
+[
+  {
+    "id": 1,
+    "nama": "Pak Joko",
+    "jabatan": "Satpam",
+    "jumlah_vote": 12
+  },
+  {
+    "id": 2,
+    "nama": "Pak Budi",
+    "jabatan": "Tukang Kebun",
+    "jumlah_vote": 5
   }
 ]
 ```

@@ -22,10 +22,13 @@ import { responseSucces } from "../utils/response.js"
 // === Warga Controllers ===
 
 export async function payIplController(req, res) {
+    console.log("[Request Pay IPL] req.file:", req.file)
+    console.log("[Request Pay IPL] req.body:", req.body)
     const userId = req.user.id
     let { months, year, amount } = req.body
 
     if (!req.file) {
+        console.log("[Response Pay IPL] Gagal: File transfer bukti pembayaran kosong")
         return res.status(400).json({ pesan: "Bukti transfer pembayaran (file) wajib diunggah masbro!" })
     }
 
@@ -35,22 +38,26 @@ export async function payIplController(req, res) {
             try {
                 months = JSON.parse(months)
             } catch (e) {
+                console.log("[Response Pay IPL] Gagal: parsing JSON months error", e)
                 return res.status(400).json({ pesan: "Bulan (months) harus dikirim dalam format JSON array, contoh: [1, 2]" })
             }
         }
 
         const dataUser = await getAccountById(userId)
         if (!dataUser || dataUser.length === 0) {
+            console.log(`[Response Pay IPL] Gagal: Akun warga userId ${userId} tidak ditemukan`)
             return res.status(404).json({ pesan: "Akun warga tidak ditemukan" })
         }
 
         const familyId = dataUser[0].family_id
         if (!familyId) {
+            console.log(`[Response Pay IPL] Gagal: Warga userId ${userId} belum memiliki familyId`)
             return res.status(400).json({ pesan: "Akun anda belum terikat dengan KK mana pun" })
         }
 
         const filename = req.file.filename
         const result = await payIplService(familyId, months, parseInt(year), parseInt(amount), filename)
+        console.log("[Response Pay IPL] hasil:", result)
 
         if (typeof result === "string" && result.startsWith("error")) {
             return res.status(400).json({ pesan: result })
@@ -58,27 +65,32 @@ export async function payIplController(req, res) {
 
         return responseSucces(200, result, "Bukti pembayaran IPL berhasil diunggah masbro, menunggu approval bendahara", res)
     } catch (err) {
-        console.log(err)
+        console.log("[Error Pay IPL]:", err)
         return res.status(500).json({ pesan: "Error di controller payIplController: " + err })
     }
 }
 
 export async function payKasController(req, res) {
+    console.log("[Request Pay Kas] req.file:", req.file)
+    console.log("[Request Pay Kas] req.body:", req.body)
     const userId = req.user.id
     const { amount, category, description } = req.body
 
     if (!req.file) {
+        console.log("[Response Pay Kas] Gagal: File transfer bukti pembayaran kosong")
         return res.status(400).json({ pesan: "Bukti transfer pembayaran (file) wajib diunggah masbro!" })
     }
 
     const allowed = ["kematian", "sosial", "kegiatan", "lainnya"]
     if (!allowed.includes(category)) {
+        console.log(`[Response Pay Kas] Gagal: Kategori ${category} tidak valid`)
         return res.status(400).json({ pesan: "Kategori kas tidak valid. Pilihan: kematian, sosial, kegiatan, lainnya" })
     }
 
     try {
         const dataUser = await getAccountById(userId)
         if (!dataUser || dataUser.length === 0) {
+            console.log(`[Response Pay Kas] Gagal: Akun warga userId ${userId} tidak ditemukan`)
             return res.status(404).json({ pesan: "Akun warga tidak ditemukan" })
         }
 
@@ -86,36 +98,41 @@ export async function payKasController(req, res) {
         const filename = req.file.filename
 
         const result = await payKasService(familyId, parseInt(amount), category, description || "-", filename)
+        console.log("[Response Pay Kas] hasil:", result)
         if (typeof result === "string" && result.startsWith("error")) {
             return res.status(400).json({ pesan: result })
         }
 
         return responseSucces(200, result, "Bukti pembayaran Kas berhasil diunggah masbro, menunggu approval bendahara", res)
     } catch (err) {
-        console.log(err)
+        console.log("[Error Pay Kas]:", err)
         return res.status(500).json({ pesan: "Error di controller payKasController: " + err })
     }
 }
 
 export async function getFamilyPaymentsController(req, res) {
     const userId = req.user.id
+    console.log(`[Request Get Family Payments] userId: ${userId}`)
     try {
         const dataUser = await getAccountById(userId)
         if (!dataUser || dataUser.length === 0) {
+            console.log(`[Response Get Family Payments] Gagal: Akun warga userId ${userId} tidak ditemukan`)
             return res.status(404).json({ pesan: "Akun warga tidak ditemukan" })
         }
 
         const familyId = dataUser[0].family_id
         if (!familyId) {
+            console.log(`[Response Get Family Payments] Gagal: Warga userId ${userId} belum memiliki familyId`)
             return res.status(400).json({ pesan: "Akun anda belum terikat dengan KK mana pun" })
         }
 
         const iplHistory = await getFamilyIplHistory(familyId)
         const kasHistory = await getFamilyKasHistory(familyId)
+        console.log(`[Response Get Family Payments] sukses, iplHistory count: ${iplHistory.length}, kasHistory count: ${kasHistory.length}`)
 
         return responseSucces(200, { ipl: iplHistory, kas: kasHistory }, "Histori pembayaran keluarga berhasil diambil", res)
     } catch (err) {
-        console.log(err)
+        console.log("[Error Get Family Payments]:", err)
         return res.status(500).json({ pesan: "Error di controller getFamilyPaymentsController: " + err })
     }
 }
@@ -123,13 +140,17 @@ export async function getFamilyPaymentsController(req, res) {
 // === Bendahara & RT Controllers ===
 
 export async function getPendingPaymentsController(req, res) {
+    console.log("[Request Get Pending Payments]")
     try {
         const pendingIpl = await getPendingIplPayments()
         const pendingKas = await getPendingKasPayments()
 
+        console.log("[Response Get Pending Payments] Pending IPL:", pendingIpl)
+        console.log("[Response Get Pending Payments] Pending Kas:", pendingKas)
+
         return responseSucces(200, { ipl: pendingIpl, kas: pendingKas }, "Daftar pending pembayaran berhasil diambil", res)
     } catch (err) {
-        console.log(err)
+        console.log("[Error Get Pending Payments]:", err)
         return res.status(500).json({ pesan: "Error di controller getPendingPaymentsController: " + err })
     }
 }
@@ -137,16 +158,19 @@ export async function getPendingPaymentsController(req, res) {
 export async function approveIplPaymentController(req, res) {
     const { id } = req.params
     const { status } = req.body // diterima atau ditolak
+    console.log(`[Request Approve IPL] id: ${id}, status: ${status}`)
 
     try {
         const result = await approveIplPaymentService(id, status)
         if (typeof result === "string" && result.startsWith("error")) {
+            console.log(`[Response Approve IPL] Gagal:`, result)
             return res.status(400).json({ pesan: result })
         }
 
+        console.log(`[Response Approve IPL] Sukses. Hasil DB:`, result)
         return responseSucces(200, result, `Pembayaran IPL berhasil di-set ${status} masbro!`, res)
     } catch (err) {
-        console.log(err)
+        console.log("[Error Approve IPL]:", err)
         return res.status(500).json({ pesan: "Error di controller approveIplPaymentController: " + err })
     }
 }
@@ -154,48 +178,74 @@ export async function approveIplPaymentController(req, res) {
 export async function approveKasPaymentController(req, res) {
     const { id } = req.params
     const { status } = req.body // diterima atau ditolak
+    console.log(`[Request Approve Kas] id: ${id}, status: ${status}`)
 
     try {
         const result = await approveKasPaymentService(id, status)
         if (typeof result === "string" && result.startsWith("error")) {
+            console.log(`[Response Approve Kas] Gagal:`, result)
             return res.status(400).json({ pesan: result })
         }
 
+        console.log(`[Response Approve Kas] Sukses. Hasil DB:`, result)
         return responseSucces(200, result, `Pembayaran Kas berhasil di-set ${status} masbro!`, res)
     } catch (err) {
-        console.log(err)
+        console.log("[Error Approve Kas]:", err)
         return res.status(500).json({ pesan: "Error di controller approveKasPaymentController: " + err })
     }
 }
 
 export async function recordExpenseController(req, res) {
     const { amount, sourceType, description } = req.body
+    console.log(`[Request Record Expense] amount: ${amount}, sourceType: ${sourceType}, description: ${description}`)
 
     try {
         const result = await recordExpenseService(parseInt(amount), sourceType, description)
+        console.log("[Response Record Expense] hasil:", result)
         if (typeof result === "string" && result.startsWith("error")) {
             return res.status(400).json({ pesan: result })
         }
 
         return responseSucces(200, result, "Pengeluaran kas RT berhasil dicatat cuy!", res)
     } catch (err) {
-        console.log(err)
+        console.log("[Error Record Expense]:", err)
         return res.status(500).json({ pesan: "Error di controller recordExpenseController: " + err })
     }
 }
 
 export async function updateFinancialSettingsController(req, res) {
-    const { iplNominal, previousBalance } = req.body
+    const { iplNominal, previousBalance, ipl_amount, ipl_nominal, previous_balance, saldo_awal } = req.body
+    console.log(`[Request Update Financial Settings] body:`, req.body)
 
     try {
-        const result = await updateFinancialSettings(parseInt(iplNominal), parseInt(previousBalance))
+        // Ambil data settings saat ini dari database untuk fallback
+        const currentSettings = await getFinancialSettings()
+        if (typeof currentSettings === "string" && currentSettings.startsWith("error")) {
+            console.log("[Response Update Financial Settings] Gagal mengambil settings saat ini:", currentSettings)
+            return res.status(500).json({ pesan: currentSettings })
+        }
+
+        // Tentukan nilai ipl nominal dengan fallback ke db
+        const rawIpl = iplNominal ?? ipl_nominal ?? ipl_amount
+        const parsedIpl = rawIpl !== undefined ? parseInt(rawIpl) : NaN
+        const finalIpl = !isNaN(parsedIpl) ? parsedIpl : (currentSettings ? currentSettings.ipl_nominal : 200000)
+
+        // Tentukan nilai previous balance dengan fallback ke db
+        const rawPrevBalance = previousBalance ?? previous_balance ?? saldo_awal
+        const parsedPrevBalance = rawPrevBalance !== undefined ? parseInt(rawPrevBalance) : NaN
+        const finalPrevBalance = !isNaN(parsedPrevBalance) ? parsedPrevBalance : (currentSettings ? currentSettings.previous_balance : 0)
+
+        console.log(`[Request Update Financial Settings] Parsed values -> ipl: ${finalIpl}, previousBalance: ${finalPrevBalance}`)
+
+        const result = await updateFinancialSettings(finalIpl, finalPrevBalance)
+        console.log("[Response Update Financial Settings] hasil:", result)
         if (typeof result === "string" && result.startsWith("error")) {
             return res.status(400).json({ pesan: result })
         }
 
         return responseSucces(200, result, "Pengaturan keuangan RT berhasil diperbarui masbro", res)
     } catch (err) {
-        console.log(err)
+        console.log("[Error Update Financial Settings]:", err)
         return res.status(500).json({ pesan: "Error di controller updateFinancialSettingsController: " + err })
     }
 }
@@ -204,10 +254,12 @@ export async function getArrearsTrackingController(req, res) {
     const now = new Date()
     const month = req.query.month ? parseInt(req.query.month) : now.getMonth() + 1
     const year = req.query.year ? parseInt(req.query.year) : now.getFullYear()
+    console.log(`[Request Get Arrears Tracking] month: ${month}, year: ${year}`)
 
     try {
         const list = await getTrackingService(month, year)
         if (typeof list === "string" && list.startsWith("error")) {
+            console.log("[Response Get Arrears Tracking] Gagal:", list)
             return res.status(400).json({ pesan: list })
         }
 
@@ -229,10 +281,11 @@ export async function getArrearsTrackingController(req, res) {
                 status: statusLabel
             }
         })
+        console.log(`[Response Get Arrears Tracking] count: ${mappedList.length}`)
 
         return responseSucces(200, mappedList, "Daftar status iuran IPL warga berhasil ditarik masbro", res)
     } catch (err) {
-        console.log(err)
+        console.log("[Error Get Arrears Tracking]:", err)
         return res.status(500).json({ pesan: "Error di controller getArrearsTrackingController: " + err })
     }
 }
@@ -240,17 +293,20 @@ export async function getArrearsTrackingController(req, res) {
 // === Public Controller ===
 
 export async function getDashboardStatsController(req, res) {
+    console.log("[Request Get Dashboard Stats]")
     try {
         const stats = await getDashboardStatsService()
         if (typeof stats === "string" && stats.startsWith("error")) {
+            console.log("[Response Get Dashboard Stats] Gagal:", stats)
             return res.status(400).json({ pesan: stats })
         }
 
         const ledgerHistory = await getLedgerList()
+        console.log("[Response Get Dashboard Stats] sukses")
 
         return responseSucces(200, { stats, ledger: ledgerHistory }, "Statistik dashboard kas RT berhasil diambil masbro", res)
     } catch (err) {
-        console.log(err)
+        console.log("[Error Get Dashboard Stats]:", err)
         return res.status(500).json({ pesan: "Error di controller getDashboardStatsController: " + err })
     }
 }

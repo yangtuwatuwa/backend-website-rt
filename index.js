@@ -18,14 +18,14 @@ const port =3333
 app.use(helemet())
 app.use(cors())
 app.use(bodyParser.json())
-app.use(apiLimiter)
+
 
 // Logger buat mantau request masuk masbro
 app.use(masuk)
 
 //routes 
 
-app.use("/warga")
+
 app.use("/post", postRoutes)
 app.use("/admin", datasensi)
 app.use("/resident", userAccesRoutes)

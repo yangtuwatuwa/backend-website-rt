@@ -18,7 +18,7 @@ export default async function keluarga(id) {
             h.status AS house_status
         FROM warga w
         LEFT JOIN house h ON w.house_id = h.id
-        WHERE w.family_id = ? AND w.status = 'diterima'
+        WHERE w.family_id = ? AND w.status_data = 'diterima'
     `
     try {
         const [hasil] = await db.execute(sqlcomand , [id])
