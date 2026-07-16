@@ -1,6 +1,7 @@
 import { warganyain, listWarga, updateWargaService, searchWargaService } from "../services/inputdbwarga.js"
 import { logicWarganya, listWarganya } from "../services/inputDataWarga.js"
 import { responseSucces } from "../utils/response.js"
+import { emitSyncEvent } from "../utils/socket.js"
 import editResident from "../services/editedResident.js"
 import { inputWarga, listRumah } from "../services/inputHouse.js"
 import { getAccountById } from "../models/login.js"
@@ -19,6 +20,7 @@ export async function inputData(req, res) {
         if (typeof warga === "string" && warga.startsWith("error")) {
             return res.status(400).json(warga)
         }
+        emitSyncEvent("warga")
         return responseSucces(200, warga, "masuk dengan sempurna ", res)
     } catch (err) {
         console.log(`[Error Input Data Warga]:`, err)
@@ -52,6 +54,7 @@ export async function editedResident(req, res) {
         if (typeof warga === "string" && (warga.startsWith("salah") || warga.startsWith("error"))) {
             return res.status(400).json(warga)
         }
+        emitSyncEvent("warga")
         return responseSucces(200, warga, "Berhasil mengubah data warga", res)
     } catch (err) {
         console.log(`[Error Edited Resident]:`, err)
@@ -84,6 +87,7 @@ export async function warga(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json(hasilnya)
         }
+        emitSyncEvent("warga")
         return responseSucces(200, hasilnya, "masuk dengan sempurnaaa", res)
     } catch (err) {
         console.log(`[Error Input Detail Warga]:`, err)
@@ -221,6 +225,7 @@ export async function createWargaByResident(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("warga")
         return responseSucces(200, hasilnya, "pendaftaran anggota keluarga berhasil, data langsung aktif masbro!", res)
     } catch (err) {
         console.log(`[Error Create Warga By Resident]:`, err)
@@ -275,6 +280,7 @@ export async function updateWargaDetailsController(req, res) {
             return res.status(400).json({ pesan: hasilnya })
         }
 
+        emitSyncEvent("warga")
         return responseSucces(200, hasilnya, "Data warga berhasil diperbarui cuy!", res)
     } catch (err) {
         console.log(`[Error Update Warga Details]:`, err)

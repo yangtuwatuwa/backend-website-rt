@@ -1,5 +1,6 @@
 import { addAnnouncement, listAllAnnouncements, editAnnouncement, removeAnnouncement } from "../services/announcement.js"
 import { responseSucces } from "../utils/response.js"
+import { emitSyncEvent } from "../utils/socket.js"
 
 export async function createAnnouncementController(req, res) {
     const { judul, isi } = req.body
@@ -10,6 +11,7 @@ export async function createAnnouncementController(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("announcement")
         return responseSucces(200, hasilnya, "pengumuman berhasil dibuat masbro", res)
     } catch (err) {
         console.log(`[Error Create Announcement]:`, err)
@@ -42,6 +44,7 @@ export async function editAnnouncementController(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("announcement")
         return responseSucces(200, hasilnya, "pengumuman berhasil diperbarui masbro", res)
     } catch (err) {
         console.log(`[Error Edit Announcement]:`, err)
@@ -58,6 +61,7 @@ export async function removeAnnouncementController(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("announcement")
         return responseSucces(200, hasilnya, "pengumuman berhasil dihapus masbro", res)
     } catch (err) {
         console.log(`[Error Remove Announcement]:`, err)

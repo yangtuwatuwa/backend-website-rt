@@ -132,6 +132,21 @@ export async function recordExpenseService(amount, sourceType, description) {
     }
 }
 
+export async function recordIncomeService(amount, sourceType, description) {
+    const allowedIncomes = ["donasi", "donasi_sukarela", "subsidi", "sponsorship", "hibah", "lainnya"]
+    if (!allowedIncomes.includes(sourceType)) {
+        return `error: pos pemasukan ${sourceType} tidak valid masbro`
+    }
+
+    try {
+        const result = await insertLedger("in", amount, sourceType, description)
+        return result
+    } catch (err) {
+        console.log(err)
+        return "error recordIncomeService: " + err
+    }
+}
+
 export async function getDashboardStatsService() {
     try {
         // 1. Hitung total warga

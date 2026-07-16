@@ -4,6 +4,7 @@ import {
     approveIplPaymentService, 
     approveKasPaymentService, 
     recordExpenseService, 
+    recordIncomeService,
     getDashboardStatsService, 
     getTrackingService 
 } from "../services/financialService.js"
@@ -18,6 +19,7 @@ import {
 } from "../models/financial.js"
 import { getAccountById } from "../models/login.js"
 import { responseSucces } from "../utils/response.js"
+import { emitSyncEvent } from "../utils/socket.js"
 
 // === Warga Controllers ===
 
@@ -63,6 +65,7 @@ export async function payIplController(req, res) {
             return res.status(400).json({ pesan: result })
         }
 
+        emitSyncEvent("finance")
         return responseSucces(200, result, "Bukti pembayaran IPL berhasil diunggah masbro, menunggu approval bendahara", res)
     } catch (err) {
         console.log("[Error Pay IPL]:", err)
@@ -103,6 +106,7 @@ export async function payKasController(req, res) {
             return res.status(400).json({ pesan: result })
         }
 
+        emitSyncEvent("finance")
         return responseSucces(200, result, "Bukti pembayaran Kas berhasil diunggah masbro, menunggu approval bendahara", res)
     } catch (err) {
         console.log("[Error Pay Kas]:", err)
@@ -198,6 +202,7 @@ export async function approveIplPaymentController(req, res) {
         }
 
         console.log(`[Response Approve IPL] Sukses. Hasil DB:`, result)
+        emitSyncEvent("finance")
         return responseSucces(200, result, `Pembayaran IPL berhasil di-set ${status} masbro!`, res)
     } catch (err) {
         console.log("[Error Approve IPL]:", err)
@@ -218,6 +223,7 @@ export async function approveKasPaymentController(req, res) {
         }
 
         console.log(`[Response Approve Kas] Sukses. Hasil DB:`, result)
+        emitSyncEvent("finance")
         return responseSucces(200, result, `Pembayaran Kas berhasil di-set ${status} masbro!`, res)
     } catch (err) {
         console.log("[Error Approve Kas]:", err)
@@ -236,12 +242,33 @@ export async function recordExpenseController(req, res) {
             return res.status(400).json({ pesan: result })
         }
 
+        emitSyncEvent("finance")
         return responseSucces(200, result, "Pengeluaran kas RT berhasil dicatat cuy!", res)
     } catch (err) {
         console.log("[Error Record Expense]:", err)
         return res.status(500).json({ pesan: "Error di controller recordExpenseController: " + err })
     }
 }
+
+export async function recordIncomeController(req, res) {
+    const { amount, sourceType, description } = req.body
+    console.log(`[Request Record Income] amount: ${amount}, sourceType: ${sourceType}, description: ${description}`)
+
+    try {
+        const result = await recordIncomeService(parseInt(amount), sourceType, description)
+        console.log("[Response Record Income] hasil:", result)
+        if (typeof result === "string" && result.startsWith("error")) {
+            return res.status(400).json({ pesan: result })
+        }
+
+        emitSyncEvent("finance")
+        return responseSucces(200, result, "Pemasukan kas RT (luar iuran) berhasil dicatat cuy!", res)
+    } catch (err) {
+        console.log("[Error Record Income]:", err)
+        return res.status(500).json({ pesan: "Error di controller recordIncomeController: " + err })
+    }
+}
+
 
 export async function updateFinancialSettingsController(req, res) {
     const { iplNominal, previousBalance, ipl_amount, ipl_nominal, previous_balance, saldo_awal } = req.body

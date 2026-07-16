@@ -1,4 +1,5 @@
 import express from "express"
+import { createServer } from "http"
 
 import cors from "cors"
 import bodyParser from "body-parser"
@@ -10,10 +11,16 @@ import datasensi from "./routes/adminAcces.js"
 import { apiLimiter } from "./middlewares/rateLimiter.js"
 import masuk from "./middlewares/reqmasuk.js"
 import { startNotificationScheduler } from "./services/notificationScheduler.js"
+import { initSocket } from "./utils/socket.js"
 
 dotenv.config()
 const app = express()
-const port =3333
+const port = 3333
+
+// Wrap Express app with HTTP server for Socket.io
+const httpServer = createServer(app)
+initSocket(httpServer)
+
 //for package middlewares 
 app.use(helemet())
 app.use(cors())
@@ -33,6 +40,6 @@ app.use("/resident", userAccesRoutes)
 // Inisialisasi scheduler reminder otomatis tagihan IPL
 startNotificationScheduler()
 
-app.listen(port, ()=>{
+httpServer.listen(port, ()=>{
     console.log("berjalan di http://localhost:"+port)
 })

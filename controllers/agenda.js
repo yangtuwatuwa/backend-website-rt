@@ -1,5 +1,6 @@
 import { addAgenda, listAllAgendas, editAgenda, removeAgenda } from "../services/agenda.js"
 import { responseSucces } from "../utils/response.js"
+import { emitSyncEvent } from "../utils/socket.js"
 
 export async function createAgendaController(req, res) {
     const { kategori, judul, deskripsi, tanggal, waktu, tempat } = req.body
@@ -10,6 +11,7 @@ export async function createAgendaController(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("agenda")
         return responseSucces(200, hasilnya, "agenda kegiatan berhasil dibuat masbro", res)
     } catch (err) {
         console.log("[Error Create Agenda]:", err)
@@ -43,6 +45,7 @@ export async function editAgendaController(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("agenda")
         return responseSucces(200, hasilnya, "agenda kegiatan berhasil diperbarui masbro", res)
     } catch (err) {
         console.log("[Error Edit Agenda]:", err)
@@ -59,6 +62,7 @@ export async function removeAgendaController(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("agenda")
         return responseSucces(200, hasilnya, "agenda kegiatan berhasil dihapus masbro", res)
     } catch (err) {
         console.log("[Error Remove Agenda]:", err)

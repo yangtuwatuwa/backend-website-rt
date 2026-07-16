@@ -60,6 +60,7 @@ import {
     approveIplPaymentController, 
     approveKasPaymentController, 
     recordExpenseController, 
+    recordIncomeController,
     updateFinancialSettingsController, 
     getArrearsTrackingController 
 } from "../controllers/financeController.js"
@@ -68,6 +69,7 @@ app.get("/finance/pending", checkRoles('rt', 'bendahara'), getPendingPaymentsCon
 app.patch("/finance/approve-ipl/:id", checkRoles('rt', 'bendahara'), approveIplPaymentController)
 app.patch("/finance/approve-kas/:id", checkRoles('rt', 'bendahara'), approveKasPaymentController)
 app.post("/finance/expense", checkRoles('rt', 'bendahara'), recordExpenseController)
+app.post("/finance/income", checkRoles('rt', 'bendahara'), recordIncomeController)
 app.patch("/finance/settings", checkRoles('rt', 'bendahara'), updateFinancialSettingsController)
 app.get("/finance/tracking", checkRoles('rt', 'bendahara'), getArrearsTrackingController)
 

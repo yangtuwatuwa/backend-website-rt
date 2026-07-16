@@ -1,5 +1,6 @@
 import { createPengaduan, listPengaduanWarga, listAllPengaduan, changePengaduanStatus } from "../services/pengaduan.js"
 import { responseSucces } from "../utils/response.js"
+import { emitSyncEvent } from "../utils/socket.js"
 
 export async function addPengaduan(req, res) {
     const { isi, jenis_pengaduan } = req.body
@@ -11,6 +12,7 @@ export async function addPengaduan(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("pengaduan")
         return responseSucces(200, hasilnya, "pengaduan berhasil terkirim", res)
     } catch (err) {
         console.log(`[Error Add Pengaduan]:`, err)
@@ -59,6 +61,7 @@ export async function approvePengaduan(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("pengaduan")
         return responseSucces(200, hasilnya, "status pengaduan berhasil diupdate", res)
     } catch (err) {
         console.log(`[Error Approve Pengaduan]:`, err)

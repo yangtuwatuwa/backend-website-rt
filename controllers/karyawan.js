@@ -1,5 +1,6 @@
 import { listKaryawan, castVote, listVoteResults } from "../services/karyawan.js"
 import { responseSucces } from "../utils/response.js"
+import { emitSyncEvent } from "../utils/socket.js"
 
 export async function getKaryawanListController(req, res) {
     console.log("[Request List Karyawan]")
@@ -32,6 +33,7 @@ export async function postVoteController(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("vote")
         return responseSucces(200, hasilnya, "Vote lu berhasil dimasukkan masbro, mantap!", res)
     } catch (err) {
         console.log("[Error Vote Karyawan]:", err)

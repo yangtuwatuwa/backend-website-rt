@@ -1,5 +1,6 @@
 import { listPendingWarga, verifyWarga } from "../services/inputdbwarga.js"
 import { responseSucces } from "../utils/response.js"
+import { emitSyncEvent } from "../utils/socket.js"
 
 export async function getPendingWargaController(req, res) {
     console.log(`[Request Get Pending Warga]`)
@@ -26,6 +27,7 @@ export async function verifyWargaController(req, res) {
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
         }
+        emitSyncEvent("warga")
         return responseSucces(200, hasilnya, "verifikasi status warga berhasil diupdate", res)
     } catch (err) {
         console.log(`[Error Verify Warga]:`, err)
