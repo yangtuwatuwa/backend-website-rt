@@ -128,9 +128,39 @@ export async function getFamilyPaymentsController(req, res) {
 
         const iplHistory = await getFamilyIplHistory(familyId)
         const kasHistory = await getFamilyKasHistory(familyId)
+
+        // Tambahkan info ketepatan_waktu untuk IPL
+        const mappedIplHistory = iplHistory.map(item => {
+            let ketepatanWaktu = "-"
+            if (item.status === "diterima" && item.payment_date) {
+                const payDate = new Date(item.payment_date)
+                const payYear = payDate.getFullYear()
+                const payMonth = payDate.getMonth() + 1
+                const payDay = payDate.getDate()
+
+                if (payYear < item.year) {
+                    ketepatanWaktu = "Tepat Waktu"
+                } else if (payYear === item.year) {
+                    if (payMonth < item.month) {
+                        ketepatanWaktu = "Tepat Waktu"
+                    } else if (payMonth === item.month && payDay <= 10) {
+                        ketepatanWaktu = "Tepat Waktu"
+                    } else {
+                        ketepatanWaktu = "Terlambat"
+                    }
+                } else {
+                    ketepatanWaktu = "Terlambat"
+                }
+            }
+            return {
+                ...item,
+                ketepatan_waktu: ketepatanWaktu
+            }
+        })
+
         console.log(`[Response Get Family Payments] sukses, iplHistory count: ${iplHistory.length}, kasHistory count: ${kasHistory.length}`)
 
-        return responseSucces(200, { ipl: iplHistory, kas: kasHistory }, "Histori pembayaran keluarga berhasil diambil", res)
+        return responseSucces(200, { ipl: mappedIplHistory, kas: kasHistory }, "Histori pembayaran keluarga berhasil diambil", res)
     } catch (err) {
         console.log("[Error Get Family Payments]:", err)
         return res.status(500).json({ pesan: "Error di controller getFamilyPaymentsController: " + err })
@@ -269,8 +299,35 @@ export async function getArrearsTrackingController(req, res) {
         // Petakan warga yang bayar, pending, atau nunggak (belum bayar / ditolak)
         const mappedList = list.map(item => {
             let statusLabel = "Nunggak"
-            if (item.payment_status === "diterima") statusLabel = "Lunas"
-            else if (item.payment_status === "pending") statusLabel = "Pending Verifikasi"
+            let ketepatanWaktu = "-"
+            
+            if (item.payment_status === "diterima") {
+                statusLabel = "Lunas"
+                
+                // Evaluasi apakah pembayaran tepat waktu (maksimal tanggal 10)
+                if (item.payment_date) {
+                    const payDate = new Date(item.payment_date)
+                    const payYear = payDate.getFullYear()
+                    const payMonth = payDate.getMonth() + 1
+                    const payDay = payDate.getDate()
+
+                    if (payYear < year) {
+                        ketepatanWaktu = "Tepat Waktu"
+                    } else if (payYear === year) {
+                        if (payMonth < month) {
+                            ketepatanWaktu = "Tepat Waktu"
+                        } else if (payMonth === month && payDay <= 10) {
+                            ketepatanWaktu = "Tepat Waktu"
+                        } else {
+                            ketepatanWaktu = "Terlambat"
+                        }
+                    } else {
+                        ketepatanWaktu = "Terlambat"
+                    }
+                }
+            } else if (item.payment_status === "pending") {
+                statusLabel = "Pending Verifikasi"
+            }
 
             return {
                 family_id: item.family_id,
@@ -278,7 +335,8 @@ export async function getArrearsTrackingController(req, res) {
                 kepala_keluarga_nama: item.kepala_keluarga_nama || "Tanpa Nama",
                 target_bulan: `${month}/${year}`,
                 nominal_tagihan: iplNominal,
-                status: statusLabel
+                status: statusLabel,
+                ketepatan_waktu: ketepatanWaktu
             }
         })
         console.log(`[Response Get Arrears Tracking] count: ${mappedList.length}`)

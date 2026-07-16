@@ -197,12 +197,19 @@ export async function getArrearsTracking(month, year) {
                 WHERE family_id = f.id AND month = ? AND year = ? 
                 ORDER BY id DESC 
                 LIMIT 1
-            ) AS payment_status
+            ) AS payment_status,
+            (
+                SELECT payment_date 
+                FROM ipl_payment 
+                WHERE family_id = f.id AND month = ? AND year = ? 
+                ORDER BY id DESC 
+                LIMIT 1
+            ) AS payment_date
         FROM family f
         LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
     `
     try {
-        const [result] = await db.execute(sqlcommand, [month, year])
+        const [result] = await db.execute(sqlcommand, [month, year, month, year])
         return result
     } catch (err) {
         console.log("error getArrearsTracking:", err)

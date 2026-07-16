@@ -1,11 +1,23 @@
 import { register, loginUser } from "../services/bisnisRegisterAndLogin.js";
 import { generateJwt } from "../helpers/jwttoken.js";
-export async function regist(req,res) {
-    const {username , password , email, role} =req.body
+export async function regist(req, res) {
+    const { username, password, email, role } = req.body
     console.log(`[Request Register] username: ${username}, email: ${email}, role: ${role}`)
-    const hasilnya = await register(username , password , email , role)
+
+    // ---- Validation ----
+    if (!username || !password || !email || !role) {
+        console.log('[Error Register] payload incomplete')
+        return res.status(400).json({ pesan: 'payload register tidak lengkap' })
+    }
+
+    const hasilnya = await register(username, password, email, role)
     console.log(`[Response Register] hasil:`, hasilnya)
-    res.json(hasilnya)
+
+    // Jika service mengembalikan error string, kirim 400
+    if (typeof hasilnya === 'string' && hasilnya.startsWith('error')) {
+        return res.status(400).json({ pesan: hasilnya })
+    }
+    return res.status(201).json(hasilnya)
 }
 export async function login(req,res) {
     const {username , password} =req.body

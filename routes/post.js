@@ -1,5 +1,6 @@
 import e from "express";
-import { regist, login } from "../controllers/registandlogin.js"; 
+import { regist, login } from "../controllers/registandlogin.js";
+// import debugRegisterFamily removed – endpoint now uses regular regist
 import { regex , verifyInput } from "../middlewares/verivyGmail.js";
 import { authLimiter } from "../middlewares/rateLimiter.js";
 
@@ -8,6 +9,7 @@ const app = e()
 
 app.post("/login", authLimiter, login)
 app.post("/debug-regist", verifyInput(regex), regist);
+
 
 // Route Dashboard Publik / Infografis Landing Page
 import { getDashboardStatsController } from "../controllers/financeController.js"

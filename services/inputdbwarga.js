@@ -108,3 +108,63 @@ export async function updateWargaService(id, data) {
         return "error updateWargaService: " + err;
     }
 }
+
+export async function searchWargaService(searchQuery) {
+    try {
+        const query = String(searchQuery).toLowerCase().trim()
+        if (!query) {
+            return []
+        }
+
+        const allWargas = await getWargas()
+        if (typeof allWargas === "string" && allWargas.startsWith("error")) {
+            return allWargas
+        }
+
+        const results = []
+        for (const w of allWargas) {
+            try {
+                const decNik = decryptEmails(w.nik)
+                const decTglLahir = decryptEmails(w.tgl_lahir)
+                const decNoHp = decryptEmails(w.no_hp)
+                const decKk = w.family_nokk ? decryptEmails(w.family_nokk) : ""
+                const decBlok = w.house_blok ? decryptEmails(w.house_blok) : ""
+                const decNomor = w.house_nomor ? decryptEmails(w.house_nomor) : ""
+                const decAlamat = w.house_alamat ? decryptEmails(w.house_alamat) : ""
+
+                const matches =
+                    w.nama.toLowerCase().includes(query) ||
+                    decNik.toLowerCase().includes(query) ||
+                    decKk.toLowerCase().includes(query) ||
+                    decBlok.toLowerCase().includes(query) ||
+                    decNomor.toLowerCase().includes(query) ||
+                    decAlamat.toLowerCase().includes(query) ||
+                    w.status_hidup.toLowerCase().includes(query)
+
+                if (matches) {
+                    results.push({
+                        ...w,
+                        nik: maskData(decNik),
+                        tgl_lahir: decTglLahir,
+                        no_hp: decNoHp,
+                        family_nokk: w.family_nokk ? maskData(decKk) : null,
+                        house_blok: w.house_blok ? decBlok : null,
+                        house_nomor: w.house_nomor ? decNomor : null,
+                        house_alamat: w.house_alamat ? decAlamat : null
+                    })
+                }
+            } catch (decErr) {
+                if (
+                    w.nama.toLowerCase().includes(query) ||
+                    w.status_hidup.toLowerCase().includes(query)
+                ) {
+                    results.push(w)
+                }
+            }
+        }
+        return results
+    } catch (err) {
+        console.log("error searchWargaService:", err)
+        return "error mas " + err
+    }
+}

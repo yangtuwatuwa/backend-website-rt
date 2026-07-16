@@ -1,5 +1,7 @@
 import e from "express";
-import {warga, inputData, getResident, editedResident, inputHouse, getHouse, getWarga, revealWarga, revealFamily, createWargaAccountController, getPendingWargaController, verifyWargaController, createStaffAccountController } from "../controllers/sensitifData.js"
+import { warga, inputData, getResident, editedResident, inputHouse, getHouse, getWarga, revealWarga, revealFamily, searchResidentController } from "../controllers/residentController.js"
+import { createWargaAccountController, createStaffAccountController } from "../controllers/accountController.js"
+import { getPendingWargaController, verifyWargaController } from "../controllers/verificationController.js"
 import { reviewPengaduan, approvePengaduan } from "../controllers/pengaduan.js"
 import { reviewPengajuan, approvePengajuan } from "../controllers/pengajuan.js"
 
@@ -16,6 +18,7 @@ const app = e()
 
 app.use(jwtAuth);
 app.get("/resident", checkRoles('rt'), getResident)
+app.get("/resident/search", checkRoles('rt', 'sekretaris'), searchResidentController)
 app.get("/house", checkRoles('rt'), getHouse)
 app.get("/datawarga", checkRoles('rt'), getWarga)
 

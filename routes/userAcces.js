@@ -5,7 +5,8 @@ import { addPengaduan, checkStatusPengaduan } from "../controllers/pengaduan.js"
 import { addPengajuan, checkStatusPengajuan } from "../controllers/pengajuan.js"
 import { getAnnouncementsController } from "../controllers/announcement.js"
 import { getAgendasController } from "../controllers/agenda.js"
-import { createWargaByResident, uploadSensitifDataController, downloadSensitifFileController, updateWargaDetailsController } from "../controllers/sensitifData.js"
+import { createWargaByResident, updateWargaDetailsController } from "../controllers/residentController.js"
+import { uploadSensitifDataController, downloadSensitifFileController } from "../controllers/documentController.js"
 import { uploadSensitifMiddleware } from "../middlewares/multerConfig.js"
 
 const router = express.Router()
