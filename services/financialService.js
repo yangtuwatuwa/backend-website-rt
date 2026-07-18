@@ -133,16 +133,29 @@ export async function recordExpenseService(amount, sourceType, description) {
 }
 
 export async function recordIncomeService(amount, sourceType, description) {
-    const allowedIncomes = ["donasi", "donasi_sukarela", "subsidi", "sponsorship", "hibah", "lainnya"]
-    if (!allowedIncomes.includes(sourceType)) {
-        return `error: pos pemasukan ${sourceType} tidak valid masbro`
+    const cleanType = String(sourceType).toLowerCase().trim()
+    
+    // Map frontend categories to existing database ENUM values
+    let dbSourceType = "lainnya"
+    if (cleanType === "donasi" || cleanType === "donasi_sukarela" || cleanType === "donasi / sukarela" || cleanType === "hibah") {
+        dbSourceType = "sosial"
+    } else if (cleanType === "sponsorship" || cleanType === "kegiatan") {
+        dbSourceType = "kegiatan"
+    } else if (cleanType === "subsidi" || cleanType === "lainnya") {
+        dbSourceType = "lainnya"
+    } else {
+        dbSourceType = "lainnya"
     }
 
+    // Format description with the original category label for auditing
+    const categoryLabel = cleanType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+    const finalDescription = `[${categoryLabel}] ${description}`
+
     try {
-        const result = await insertLedger("in", amount, sourceType, description)
+        const result = await insertLedger("in", amount, dbSourceType, finalDescription)
         return result
     } catch (err) {
-        console.log(err)
+        console.log("error recordIncomeService:", err)
         return "error recordIncomeService: " + err
     }
 }

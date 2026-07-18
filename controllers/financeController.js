@@ -307,6 +307,21 @@ export async function updateFinancialSettingsController(req, res) {
     }
 }
 
+export async function getFinancialSettingsController(req, res) {
+    console.log("[Request Get Financial Settings]")
+    try {
+        const settings = await getFinancialSettings()
+        console.log("[Response Get Financial Settings] hasil:", settings)
+        if (typeof settings === "string" && settings.startsWith("error")) {
+            return res.status(400).json({ pesan: settings })
+        }
+        return res.json(settings)
+    } catch (err) {
+        console.log("[Error Get Financial Settings]:", err)
+        return res.status(500).json({ pesan: "Error di controller getFinancialSettingsController: " + err })
+    }
+}
+
 export async function getArrearsTrackingController(req, res) {
     const now = new Date()
     const month = req.query.month ? parseInt(req.query.month) : now.getMonth() + 1

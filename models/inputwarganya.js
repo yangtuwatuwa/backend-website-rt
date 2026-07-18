@@ -1,9 +1,26 @@
 import db from "../config/sqlconfig.js"
 
-export async function warganya(nikk, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, status = "diterima"){
+export async function warganya(nikk, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, status = "diterima", isKepalaKeluarga = false){
     try {
         const sqlcommand = "INSERT INTO warga (id, nik, nama, jenis_kelamin, tgl_lahir, status_hidup, no_hp, umur, family_id, house_id, status_data) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" 
         const [hasilnya] = await db.execute(sqlcommand, [nikk, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, status])
+        
+        if (hasilnya && hasilnya.insertId) {
+            const citizenId = hasilnya.insertId
+            
+            // Ambil data kepala_keluarga_id saat ini untuk KK ini
+            const [familyRows] = await db.execute("SELECT kepala_keluarga_id FROM family WHERE id = ?", [familyId])
+            if (familyRows && familyRows.length > 0) {
+                const currentHeadId = familyRows[0].kepala_keluarga_id
+                
+                // Jika request adalah kepala keluarga, atau kepala keluarga saat ini masih dummy (1) atau belum terisi (null/0)
+                if (isKepalaKeluarga || currentHeadId === 1 || currentHeadId === null || currentHeadId === 0) {
+                    console.log(`[Auto-Head] Update family id ${familyId} kepala_keluarga_id -> ${citizenId}`)
+                    await db.execute("UPDATE family SET kepala_keluarga_id = ? WHERE id = ?", [citizenId, familyId])
+                }
+            }
+        }
+        
         return hasilnya;
     } catch (err) {
         console.log(err)

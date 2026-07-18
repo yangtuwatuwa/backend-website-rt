@@ -22,10 +22,11 @@ const httpServer = createServer(app)
 initSocket(httpServer)
 
 //for package middlewares 
+
 app.use(helemet())
 app.use(cors())
 app.use(bodyParser.json())
-
+// app.use(apiLimiter)
 
 // Logger buat mantau request masuk masbro
 app.use(masuk)

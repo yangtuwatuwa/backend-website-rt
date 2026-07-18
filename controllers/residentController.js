@@ -79,10 +79,10 @@ export async function inputHouse(req, res) {
 }
 
 export async function warga(req, res) {
-    const { nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, fammilyId, houseId } = req.body
+    const { nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, fammilyId, houseId, isKepalaKeluarga, is_kepala_keluarga } = req.body
     console.log(`[Request Input Detail Warga] nik: ${nik}, nama: ${nama}, familyId: ${fammilyId}, houseId: ${houseId}`)
     try {
-        const hasilnya = await warganyain(nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, fammilyId, houseId)
+        const hasilnya = await warganyain(nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, fammilyId, houseId, "diterima", isKepalaKeluarga || is_kepala_keluarga)
         console.log(`[Response Input Detail Warga] hasil:`, hasilnya)
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json(hasilnya)
@@ -196,9 +196,9 @@ export async function revealFamily(req, res) {
 }
 
 export async function createWargaByResident(req, res) {
-    const { nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur } = req.body
+    const { nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, isKepalaKeluarga, is_kepala_keluarga } = req.body
     const userId = req.user.id
-    console.log(`[Request Create Warga By Resident] nik: ${nik}, nama: ${nama}, byUserId: ${userId}`)
+    console.log(`[Request Create Warga By Resident] byUserId: ${userId}, nik: ${nik}, nama: ${nama}`)
     try {
         const dataUser = await getAccountById(userId)
         if (!dataUser || dataUser === "error" || dataUser.length === 0) {
@@ -220,7 +220,7 @@ export async function createWargaByResident(req, res) {
 
         const houseId = familyData.house_id
 
-        const hasilnya = await warganyain(nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, "diterima")
+        const hasilnya = await warganyain(nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, "diterima", isKepalaKeluarga || is_kepala_keluarga)
         console.log(`[Response Create Warga By Resident] hasil:`, hasilnya)
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })

@@ -17,10 +17,10 @@ const app = e()
 
 
 app.use(jwtAuth);
-app.get("/resident", checkRoles('rt'), getResident)
+app.get("/resident", checkRoles('rt', "sekretaris"), getResident)
 app.get("/resident/search", checkRoles('rt', 'sekretaris'), searchResidentController)
 app.get("/house", checkRoles('rt'), getHouse)
-app.get("/datawarga", checkRoles('rt'), getWarga)
+app.get("/datawarga", checkRoles('rt', 'sekretaris'), getWarga)
 
 app.post("/reveal-warga/:id", authLimiter, checkRoles('rt'), revealWarga)
 app.post("/reveal-resident/:id", authLimiter, checkRoles('rt'), revealFamily)
@@ -62,6 +62,7 @@ import {
     recordExpenseController, 
     recordIncomeController,
     updateFinancialSettingsController, 
+    getFinancialSettingsController,
     getArrearsTrackingController 
 } from "../controllers/financeController.js"
 
@@ -71,6 +72,7 @@ app.patch("/finance/approve-kas/:id", checkRoles('rt', 'bendahara'), approveKasP
 app.post("/finance/expense", checkRoles('rt', 'bendahara'), recordExpenseController)
 app.post("/finance/income", checkRoles('rt', 'bendahara'), recordIncomeController)
 app.patch("/finance/settings", checkRoles('rt', 'bendahara'), updateFinancialSettingsController)
+app.get("/finance/settings", checkRoles('rt', 'bendahara'), getFinancialSettingsController)
 app.get("/finance/tracking", checkRoles('rt', 'bendahara'), getArrearsTrackingController)
 
 export default app

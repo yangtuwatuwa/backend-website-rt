@@ -2,14 +2,14 @@ import { warganya, getWargas, getPendingWarga, updateWargaStatus, updateWargaFie
 import { encryptEmails, decryptEmails } from "../helpers/ciihper.js";
 import { maskData } from "../utils/masking.js";
 
-export async function warganyain (nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, status = "diterima"){
+export async function warganyain (nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, status = "diterima", isKepalaKeluarga = false){
     try {
         // Enkripsi data sensitif sebelum masuk ke DB
         const encryptedNik      = encryptEmails(String(nik))
         const encryptedTglLahir = encryptEmails(tglLahir)
         const encryptedNoHp     = encryptEmails(String(noHp))
 
-        const hasildbnya = await warganya(encryptedNik, nama, jenisKelamin, encryptedTglLahir, statusHidup, encryptedNoHp, umur, familyId, houseId, status)
+        const hasildbnya = await warganya(encryptedNik, nama, jenisKelamin, encryptedTglLahir, statusHidup, encryptedNoHp, umur, familyId, houseId, status, isKepalaKeluarga)
         return hasildbnya;
     } catch (err) {
         return "error input warganya diservice: " + err 
