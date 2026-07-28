@@ -46,10 +46,13 @@ export async function getWargas() {
             h.nomor AS house_nomor,
             h.alamat AS house_alamat,
             h.status AS house_status,
-            w.status_data AS status
+            w.status_data AS status,
+            a.id AS account_id,
+            a.username AS account_username
         FROM warga w
         LEFT JOIN family f ON w.family_id = f.id
         LEFT JOIN house h ON w.house_id = h.id
+        LEFT JOIN acount a ON a.family_id = w.family_id
     `
     try {
         const [hasilnya] = await db.execute(sqlcommand)

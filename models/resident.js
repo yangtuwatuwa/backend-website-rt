@@ -1,9 +1,10 @@
 import db from "../config/sqlconfig.js"
 
 export async function inputWarganya(nokk, houseId , kepalaKelaurgaId ){
-    const sqlcommand = "INSERT INTO family (id , no_kk , house_id , kepala_keluarga_id) VALUES (NULL ,  ? , ? , ?) "
+    const sqlcommand = "INSERT INTO family (id , no_kk , house_id , kepala_keluarga_id) VALUES (NULL , ? , ? , ?) "
     try {
-        const hasilnya = await db.execute(sqlcommand , [nokk , houseId , kepalaKelaurgaId])
+        const targetHead = (kepalaKelaurgaId !== undefined && kepalaKelaurgaId !== null && kepalaKelaurgaId !== "") ? kepalaKelaurgaId : null
+        const hasilnya = await db.execute(sqlcommand , [nokk , houseId , targetHead])
         return hasilnya
     } catch (err) {
         console.log(err)
@@ -24,10 +25,13 @@ export async function getWarganya() {
             f.kepala_keluarga_id,
             w.nama AS kepala_keluarga_nama,
             w.nik AS kepala_keluarga_nik,
-            w.no_hp AS kepala_keluarga_nohp
+            w.no_hp AS kepala_keluarga_nohp,
+            a.id AS account_id,
+            a.username AS account_username
         FROM family f
         LEFT JOIN house h ON f.house_id = h.id
         LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
+        LEFT JOIN acount a ON a.family_id = f.id
     `
     try {
         const [result] = await db.execute(sqlcommand)

@@ -216,3 +216,27 @@ export async function getArrearsTracking(month, year) {
         return "error karena: " + err
     }
 }
+
+export async function createManualIplPayment(familyId, amount, month, year, paymentDate) {
+    const sqlcommand = "INSERT INTO ipl_payment (id, family_id, amount, month, year, status, payment_proof, payment_date) VALUES (NULL, ?, ?, ?, ?, 'diterima', 'manual_cash', ?)"
+    try {
+        const dateValue = paymentDate || new Date()
+        const [result] = await db.execute(sqlcommand, [familyId, amount, month, year, dateValue])
+        return result
+    } catch (err) {
+        console.log("error createManualIplPayment:", err)
+        return "error karena: " + err
+    }
+}
+
+export async function createManualKasPayment(familyId, amount, category, description, paymentDate) {
+    const sqlcommand = "INSERT INTO kas_payment (id, family_id, amount, category, description, status, payment_proof, payment_date) VALUES (NULL, ?, ?, ?, ?, 'diterima', 'manual_cash', ?)"
+    try {
+        const dateValue = paymentDate || new Date()
+        const [result] = await db.execute(sqlcommand, [familyId, amount, category, description, dateValue])
+        return result
+    } catch (err) {
+        console.log("error createManualKasPayment:", err)
+        return "error karena: " + err
+    }
+}

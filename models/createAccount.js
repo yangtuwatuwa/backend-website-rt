@@ -32,3 +32,14 @@ export async function createStaffAccount(username, passwordHash, email, role) {
         throw err;
     }
 }
+
+export async function bindAccountToFamily(userId, familyId) {
+    const sqlcommand = "UPDATE acount SET family_id = ? WHERE id = ?";
+    try {
+        const [result] = await db.execute(sqlcommand, [familyId, userId]);
+        return result;
+    } catch (err) {
+        console.log("error bindAccountToFamily:", err);
+        return "error karena: " + err;
+    }
+}

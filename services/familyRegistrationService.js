@@ -29,14 +29,14 @@ export async function registerFamilyService(houseData, familyData, headOfFamilyD
         );
         const houseId = houseResult.insertId;
 
-        // 2. Insert Family (KK) with temporary kepala_keluarga_id = 1
+        // 2. Insert Family (KK) with temporary kepala_keluarga_id = NULL (agar tidak error FK constraint)
         const { noKK } = familyData;
         if (!noKK) {
             throw new Error("Nomor KK wajib diisi");
         }
         const encryptedKK = encryptEmails(noKK);
         const [familyResult] = await conn.execute(
-            "INSERT INTO family (id, no_kk, house_id, kepala_keluarga_id) VALUES (NULL, ?, ?, 1)",
+            "INSERT INTO family (id, no_kk, house_id, kepala_keluarga_id) VALUES (NULL, ?, ?, NULL)",
             [encryptedKK, houseId]
         );
         const familyId = familyResult.insertId;
@@ -44,7 +44,7 @@ export async function registerFamilyService(houseData, familyData, headOfFamilyD
         // 3. Insert Warga (Kepala Keluarga)
         const { nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur } = headOfFamilyData;
         if (!nik || !nama || !jenisKelamin || !tglLahir || !statusHidup || !noHp || !umur) {
-            throw new Error("Data kepala keluarga tidak lengkap");
+            throw new Error("Data kepala keluarga tidak lengkap pasti nih gr gr " + statusHidup);
         }
         const encryptedNIK = encryptEmails(nik);
         const [wargaResult] = await conn.execute(

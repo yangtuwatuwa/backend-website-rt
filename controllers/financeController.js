@@ -5,6 +5,7 @@ import {
     approveKasPaymentService, 
     recordExpenseService, 
     recordIncomeService,
+    recordManualPaymentService,
     getDashboardStatsService, 
     getTrackingService 
 } from "../services/financialService.js"
@@ -408,5 +409,47 @@ export async function getDashboardStatsController(req, res) {
     } catch (err) {
         console.log("[Error Get Dashboard Stats]:", err)
         return res.status(500).json({ pesan: "Error di controller getDashboardStatsController: " + err })
+    }
+}
+
+export async function recordManualPaymentController(req, res) {
+    const { family_id, familyId, jenis_iuran, jenisIuran, amount, month, year, category, description, payment_date, paymentDate } = req.body
+    const targetFamilyId = family_id || familyId
+    const targetJenisIuran = (jenis_iuran || jenisIuran || "ipl").toLowerCase()
+    const targetAmount = amount
+    const targetMonth = month
+    const targetYear = year
+    const targetDate = payment_date || paymentDate
+
+    console.log(`[Request Record Manual Payment] familyId: ${targetFamilyId}, jenisIuran: ${targetJenisIuran}, amount: ${targetAmount}`)
+
+    if (!targetFamilyId) {
+        return res.status(400).json({ pesan: "Pilih Warga / KK Pembayar dulu masbro!" })
+    }
+    if (!targetAmount || isNaN(targetAmount) || Number(targetAmount) <= 0) {
+        return res.status(400).json({ pesan: "Nominal pembayaran wajib diisi angka positif masbro!" })
+    }
+
+    try {
+        const result = await recordManualPaymentService(
+            targetFamilyId,
+            targetJenisIuran,
+            Number(targetAmount),
+            targetMonth,
+            targetYear,
+            category,
+            description,
+            targetDate
+        )
+        console.log("[Response Record Manual Payment] hasil:", result)
+        if (typeof result === "string" && result.startsWith("error")) {
+            return res.status(400).json({ pesan: result })
+        }
+
+        emitSyncEvent("finance")
+        return responseSucces(201, result, "Pencatatan iuran warga manual berhasil disimpan masbro!", res)
+    } catch (err) {
+        console.log("[Error Record Manual Payment]:", err)
+        return res.status(500).json({ pesan: "Error di controller recordManualPaymentController: " + err })
     }
 }

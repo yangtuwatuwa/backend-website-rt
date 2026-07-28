@@ -11,19 +11,28 @@ import { decryptEmails } from "../helpers/ciihper.js"
 import { argonverify } from "../helpers/argon2.js"
 
 export async function inputData(req, res) {
-    const { noKK, home, KepalaKeluarga } = req.body
-    console.log(`[Request Input Data Warga] noKK: ${noKK}, home: ${home}, KepalaKeluarga: ${KepalaKeluarga}`)
+    const { noKK, home, houseId, house_id, KepalaKeluarga, kepalaKeluarga, kepala_keluarga_id } = req.body
+    const targetHouseId = home || houseId || house_id
+    const targetHeadId = KepalaKeluarga || kepalaKeluarga || kepala_keluarga_id || null
+    console.log(`[Request Input Data Warga / KK] noKK: ${noKK}, houseId: ${targetHouseId}, kepalaKeluarga: ${targetHeadId}`)
+
+    if (!noKK) {
+        return res.status(400).json({ pesan: "Nomor KK wajib diisi masbro!" })
+    }
+    if (!targetHouseId) {
+        return res.status(400).json({ pesan: "ID Rumah (houseId) wajib diisi masbro!" })
+    }
 
     try {
-        const warga = await logicWarganya(noKK, home, KepalaKeluarga)
-        console.log(`[Response Input Data Warga] hasil:`, warga)
+        const warga = await logicWarganya(noKK, targetHouseId, targetHeadId)
+        console.log(`[Response Input Data Warga / KK] hasil:`, warga)
         if (typeof warga === "string" && warga.startsWith("error")) {
-            return res.status(400).json(warga)
+            return res.status(400).json({ pesan: warga })
         }
         emitSyncEvent("warga")
-        return responseSucces(200, warga, "masuk dengan sempurna ", res)
+        return responseSucces(200, warga, "Data KK berhasil ditambahkan masbro", res)
     } catch (err) {
-        console.log(`[Error Input Data Warga]:`, err)
+        console.log(`[Error Input Data Warga / KK]:`, err)
         return res.status(500).json("error mas di controllers: " + err)
     }
 }
@@ -79,13 +88,20 @@ export async function inputHouse(req, res) {
 }
 
 export async function warga(req, res) {
-    const { nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, fammilyId, houseId, isKepalaKeluarga, is_kepala_keluarga } = req.body
-    console.log(`[Request Input Detail Warga] nik: ${nik}, nama: ${nama}, familyId: ${fammilyId}, houseId: ${houseId}`)
+    const { nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, fammilyId, familyId, family_id, houseId, house_id, isKepalaKeluarga, is_kepala_keluarga } = req.body
+    const targetFamilyId = fammilyId || familyId || family_id
+    const targetHouseId = houseId || house_id
+    console.log(`[Request Input Detail Warga] nik: ${nik}, nama: ${nama}, familyId: ${targetFamilyId}, houseId: ${targetHouseId}`)
+
+    if (!nik || !nama || !targetFamilyId || !targetHouseId) {
+        return res.status(400).json({ pesan: "NIK, Nama, familyId, dan houseId wajib diisi masbro!" })
+    }
+
     try {
-        const hasilnya = await warganyain(nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, fammilyId, houseId, "diterima", isKepalaKeluarga || is_kepala_keluarga)
+        const hasilnya = await warganyain(nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, targetFamilyId, targetHouseId, "diterima", isKepalaKeluarga || is_kepala_keluarga)
         console.log(`[Response Input Detail Warga] hasil:`, hasilnya)
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
-            return res.status(400).json(hasilnya)
+            return res.status(400).json({ pesan: hasilnya })
         }
         emitSyncEvent("warga")
         return responseSucces(200, hasilnya, "masuk dengan sempurnaaa", res)

@@ -2,11 +2,11 @@ import { inputWarganya, getWarganya } from "../models/resident.js";
 import { encryptEmails, decryptEmails } from "../helpers/ciihper.js";
 import { maskData } from "../utils/masking.js";
 
-export async function logicWarganya(noKK, houseId,kepalaKeluarga){
-    
+export async function logicWarganya(noKK, houseId, kepalaKeluarga){
     try {
         const nokk = await encryptEmails(noKK)
-        const hasilnya = await inputWarganya(nokk, houseId , kepalaKeluarga)
+        const targetHead = (kepalaKeluarga !== undefined && kepalaKeluarga !== null && kepalaKeluarga !== "") ? kepalaKeluarga : null
+        const hasilnya = await inputWarganya(nokk, houseId, targetHead)
         return hasilnya;
         
     } catch (err) {

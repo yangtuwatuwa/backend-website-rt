@@ -2,11 +2,13 @@ import {
     getFinancialSettings, 
     updateFinancialSettings, 
     createIplPayment, 
+    createManualIplPayment,
     getIplPaymentById, 
     getPendingIplPayments, 
     updateIplPaymentStatus, 
     getFamilyIplHistory, 
     createKasPayment, 
+    createManualKasPayment,
     getKasPaymentById, 
     getPendingKasPayments, 
     updateKasPaymentStatus, 
@@ -198,5 +200,32 @@ export async function getTrackingService(month, year) {
     } catch (err) {
         console.log(err)
         return "error getTrackingService: " + err
+    }
+}
+
+export async function recordManualPaymentService(familyId, jenisIuran, amount, month, year, category, description, paymentDate) {
+    try {
+        const isIpl = (jenisIuran === "ipl" || jenisIuran === "kebersihan" || jenisIuran === "iuran_ipl")
+        if (isIpl) {
+            const m = month || (new Date().getMonth() + 1)
+            const y = year || new Date().getFullYear()
+            const result = await createManualIplPayment(familyId, amount, m, y, paymentDate)
+            if (typeof result === "string" && result.startsWith("error")) return result
+
+            const desc = description || `Pembayaran Iuran IPL Manual KK ID ${familyId} (Bulan ${m}/${y})`
+            await insertLedger("in", amount, "ipl", desc)
+            return { message: "Pencatatan iuran IPL manual berhasil diselesaikan", payment_id: result.insertId }
+        } else {
+            const cat = category || "kas_rt"
+            const desc = description || `Pembayaran Iuran Kas RT Manual KK ID ${familyId}`
+            const result = await createManualKasPayment(familyId, amount, cat, desc, paymentDate)
+            if (typeof result === "string" && result.startsWith("error")) return result
+
+            await insertLedger("in", amount, "kas", desc)
+            return { message: "Pencatatan iuran Kas RT manual berhasil diselesaikan", payment_id: result.insertId }
+        }
+    } catch (err) {
+        console.log(err)
+        return "error recordManualPaymentService: " + err
     }
 }

@@ -65,13 +65,15 @@ Dokumentasi API lengkap, terstruktur, dan siap pakai untuk integrasi Frontend.
 * **Request Body:**
   ```json
   {
-    "username": "sekretaris_baru",
+    "username": "warga_budi",
     "password": "PasswordSakti123!",
-    "email": "sekretaris@gmail.com",
-    "role": "sekertaris"
+    "email": "budi@gmail.com",
+    "role": "warga",
+    "family_id": 1
   }
   ```
   * `role`: Nilai yang diizinkan sesuai database enum: `'rt'`, `'sekertaris'`, `'bendahara'`, `'warga'`, `'admin'`. (Catatan: role sekretaris ditulis `'sekertaris'` di DB enum).
+  * `family_id` (atau `familyId`, opsional): ID Kartu Keluarga (KK) target. Jika diisi, akun warga akan **langsung terikat** dengan `family_id` tersebut (tidak bernilai `NULL`).
 * **Response Sukses (200 OK):**
   ```json
   {

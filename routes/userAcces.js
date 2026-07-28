@@ -53,4 +53,9 @@ router.get("/karyawan", jwtAuth, getKaryawanListController)
 router.post("/vote", jwtAuth, postVoteController)
 router.get("/vote/results", jwtAuth, getVoteResultsController)
 
+// Route Template Surat Warga (Melihat & Unduh Format)
+import { getTemplateSuratListController, downloadTemplateSuratController } from "../controllers/templateSuratController.js"
+router.get("/template-surat", jwtAuth, getTemplateSuratListController)
+router.get("/template-surat/download/:id", jwtAuth, downloadTemplateSuratController)
+
 export default router

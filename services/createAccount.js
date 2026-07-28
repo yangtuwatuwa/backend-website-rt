@@ -1,4 +1,4 @@
-import { checkFamilyAccountExists, createFamilyAccount, createStaffAccount } from "../models/createAccount.js";
+import { checkFamilyAccountExists, createFamilyAccount, createStaffAccount, bindAccountToFamily } from "../models/createAccount.js";
 import { argonhash } from "../helpers/argon2.js";
 import { encryptEmails } from "../helpers/ciihper.js";
 
@@ -43,6 +43,16 @@ export async function generateStaffAccount(username, password, email, role) {
         const encryptedEmail = email ? encryptEmails(email) : null;
         await createStaffAccount(username, passwordHash, encryptedEmail, role);
         return { username };
+    } catch (err) {
+        console.log(err);
+        return "error karena: " + err;
+    }
+}
+
+export async function bindAccountToFamilyService(userId, familyId) {
+    try {
+        const result = await bindAccountToFamily(userId, familyId);
+        return result;
     } catch (err) {
         console.log(err);
         return "error karena: " + err;
