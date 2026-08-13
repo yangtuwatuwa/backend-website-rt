@@ -1,11 +1,11 @@
-import { generateWargaAccount, generateStaffAccount, bindAccountToFamilyService } from "../services/createAccount.js"
+import { generateWargaAccount, generateStaffAccount, bindAccountToFamilyService, checkAccountStatusService } from "../services/createAccount.js"
 import { responseSucces } from "../utils/response.js"
 import { emitSyncEvent } from "../utils/socket.js"
 
 export async function createWargaAccountController(req, res) {
-    const { familyId, family_id } = req.body;
+    const { familyId, family_id, username, password } = req.body;
     const targetFamilyId = familyId || family_id;
-    console.log(`[Request Create Warga Account] familyId: ${targetFamilyId}`);
+    console.log(`[Request Create Warga Account] familyId: ${targetFamilyId}, username: ${username}`);
     
     // ---- Validation ----
     if (!targetFamilyId) {
@@ -13,13 +13,23 @@ export async function createWargaAccountController(req, res) {
         return res.status(400).json({ pesan: 'familyId wajib diisi untuk membuat akun warga' });
     }
     try {
-        const account = await generateWargaAccount(targetFamilyId);
-        console.log(`[Response Create Warga Account] hasil:`, account);
+        const account = await generateWargaAccount(targetFamilyId, username, password);
+        console.log(`[Response Create Warga Account] akun berhasil dibuat untuk familyId: ${targetFamilyId}`);
         if (typeof account === "string" && account.startsWith('error')) {
             return res.status(400).json({ pesan: account });
         }
-        emitSyncEvent("warga")
-        return responseSucces(200, account, "Akun berhasil dibuat", res);
+        emitSyncEvent("warga");
+
+        // Password sementara dikirim SEKALI ke admin untuk dicatat/diberikan ke warga.
+        // Setelah response ini, password plaintext tidak pernah bisa diakses lagi.
+        return res.status(201).json({
+            response: 201,
+            data: {
+                username: account.username,
+                temporaryPassword: account.temporaryPassword
+            },
+            message: "Akun berhasil dibuat. Catat password sementara ini, tidak bisa dilihat lagi setelah halaman ditutup."
+        });
     } catch (err) {
         console.log(`[Error Create Warga Account]:`, err);
         return res.status(500).json({ pesan: "error mas di controller: " + err });
@@ -74,3 +84,48 @@ export async function bindAccountToFamilyController(req, res) {
         return res.status(500).json({ pesan: "error mas di controller bindAccountToFamilyController: " + err })
     }
 }
+
+export async function checkAccountStatusController(req, res) {
+    const { familyId } = req.params;
+    const targetFamilyId = familyId || req.query.familyId || req.query.family_id;
+    console.log(`[Request Check Account Status] familyId: ${targetFamilyId}`);
+
+    if (!targetFamilyId) {
+        return res.status(400).json({ pesan: "familyId wajib diisi masbro!" });
+    }
+
+    try {
+        const result = await checkAccountStatusService(targetFamilyId);
+        console.log(`[Response Check Account Status] hasil:`, result);
+        if (typeof result === "string" && result.startsWith("error")) {
+            return res.status(400).json({ pesan: result });
+        }
+        return res.status(200).json({
+            response: 200,
+            output: result,
+            data: result,
+            hasAccount: result.hasAccount,
+            has_account: result.has_account,
+            status: result.status,
+            message: result.hasAccount ? "Akun sudah terdaftar" : "Akun belum terdaftar"
+        });
+    } catch (err) {
+        console.log(`[Error Check Account Status]:`, err);
+        return res.status(500).json({ pesan: "error mas di controller checkAccountStatusController: " + err });
+    }
+}
+
+import { getAccessLogs } from "../models/accessLogs.js"
+
+export async function getAccessLogsController(req, res) {
+    const limit = req.query.limit || 100
+    console.log(`[Request Get Access Logs] limit: ${limit}`)
+    try {
+        const logs = await getAccessLogs(limit)
+        return responseSucces(200, logs, "Riwayat log akses keamanan berhasil diambil masbro", res)
+    } catch (err) {
+        console.log(`[Error Get Access Logs]:`, err)
+        return res.status(500).json({ pesan: "error mas di controller getAccessLogsController: " + err })
+    }
+}
+

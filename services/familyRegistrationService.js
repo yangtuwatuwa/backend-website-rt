@@ -1,15 +1,15 @@
 import pool from "../config/sqlconfig.js";
 import { encryptEmails } from "../helpers/ciihper.js";
 import { argonhash } from "../helpers/argon2.js";
+import { calculateAge } from "../helpers/ageCalculator.js";
+import crypto from "crypto";
 
-// Password generator
+// Password generator — cryptographically secure
 function generateTempPassword() {
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
-    let password = "";
-    for (let i = 0; i < 8; i++) {
-        password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return password;
+    return Array.from(crypto.randomBytes(12))
+        .map(byte => chars[byte % chars.length])
+        .join("");
 }
 
 export async function registerFamilyService(houseData, familyData, headOfFamilyData) {
@@ -43,13 +43,16 @@ export async function registerFamilyService(houseData, familyData, headOfFamilyD
 
         // 3. Insert Warga (Kepala Keluarga)
         const { nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur } = headOfFamilyData;
-        if (!nik || !nama || !jenisKelamin || !tglLahir || !statusHidup || !noHp || !umur) {
+        if (!nik || !nama || !jenisKelamin || !tglLahir || !statusHidup || !noHp || (umur === undefined && !tglLahir)) {
             throw new Error("Data kepala keluarga tidak lengkap pasti nih gr gr " + statusHidup);
         }
         const encryptedNIK = encryptEmails(nik);
+        const encryptedTglLahir = encryptEmails(tglLahir);
+        const finalUmur = calculateAge(tglLahir, umur);
+
         const [wargaResult] = await conn.execute(
             "INSERT INTO warga (id, nik, nama, jenis_kelamin, tgl_lahir, status_hidup, no_hp, umur, family_id, house_id, status_data) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'diterima')",
-            [encryptedNIK, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId]
+            [encryptedNIK, nama, jenisKelamin, encryptedTglLahir, statusHidup, noHp, finalUmur, familyId, houseId]
         );
         const wargaId = wargaResult.insertId;
 

@@ -146,13 +146,58 @@ export async function getFamilyKasHistory(familyId) {
 }
 
 // === Ledger ===
-export async function insertLedger(type, amount, sourceType, description) {
+export async function insertLedger(type, amount, sourceType, description, receiptFile = null) {
+    if (receiptFile) {
+        try {
+            const [result] = await db.execute(
+                "INSERT INTO financial_ledger (id, type, amount, source_type, description, receipt_file) VALUES (NULL, ?, ?, ?, ?, ?)",
+                [type, amount, sourceType, description, receiptFile]
+            )
+            return result
+        } catch (err) {
+            try {
+                await db.execute("ALTER TABLE financial_ledger ADD COLUMN IF NOT EXISTS receipt_file VARCHAR(255)")
+                const [result] = await db.execute(
+                    "INSERT INTO financial_ledger (id, type, amount, source_type, description, receipt_file) VALUES (NULL, ?, ?, ?, ?, ?)",
+                    [type, amount, sourceType, description, receiptFile]
+                )
+                return result
+            } catch (alterErr) {
+                const [result] = await db.execute(
+                    "INSERT INTO financial_ledger (id, type, amount, source_type, description) VALUES (NULL, ?, ?, ?, ?)",
+                    [type, amount, sourceType, `[Receipt: ${receiptFile}] ${description}`]
+                )
+                return result
+            }
+        }
+    }
     const sqlcommand = "INSERT INTO financial_ledger (id, type, amount, source_type, description) VALUES (NULL, ?, ?, ?, ?)"
     try {
         const [result] = await db.execute(sqlcommand, [type, amount, sourceType, description])
         return result
     } catch (err) {
         console.log("error insertLedger:", err)
+        return "error karena: " + err
+    }
+}
+
+export async function getMonthlyFinancialSummary(year = new Date().getFullYear()) {
+    const sqlcommand = `
+        SELECT 
+            MONTH(transaction_date) AS month,
+            YEAR(transaction_date) AS year,
+            SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END) AS total_income,
+            SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END) AS total_expense
+        FROM financial_ledger
+        WHERE YEAR(transaction_date) = ?
+        GROUP BY YEAR(transaction_date), MONTH(transaction_date)
+        ORDER BY month ASC
+    `
+    try {
+        const [result] = await db.execute(sqlcommand, [year])
+        return result
+    } catch (err) {
+        console.log("error getMonthlyFinancialSummary:", err)
         return "error karena: " + err
     }
 }
@@ -240,3 +285,41 @@ export async function createManualKasPayment(familyId, amount, category, descrip
         return "error karena: " + err
     }
 }
+
+export async function generateBatchBillsModel(amount, startMonth, startYear, endMonth, endYear) {
+    try {
+        if (amount && Number(amount) > 0) {
+            await db.execute("UPDATE financial_settings SET ipl_nominal = ? WHERE id = 1", [amount])
+        }
+        const [familyRows] = await db.execute("SELECT COUNT(id) AS total FROM family")
+        const totalFamilies = Number(familyRows[0]?.total || 0)
+
+        const sM = Number(startMonth || 1)
+        const sY = Number(startYear || new Date().getFullYear())
+        const eM = Number(endMonth || 12)
+        const eY = Number(endYear || sY)
+
+        let totalMonths = 0
+        if (sY === eY) {
+            totalMonths = (eM - sM) + 1
+        } else {
+            totalMonths = ((eY - sY) * 12) + (eM - sM) + 1
+        }
+        if (totalMonths < 1) totalMonths = 12
+
+        return {
+            amount_per_month: Number(amount || 200000),
+            total_families: totalFamilies,
+            total_months: totalMonths,
+            total_bills_generated: totalFamilies * totalMonths,
+            start_month: sM,
+            start_year: sY,
+            end_month: eM,
+            end_year: eY
+        }
+    } catch (err) {
+        console.log("error generateBatchBillsModel:", err)
+        throw err
+    }
+}
+

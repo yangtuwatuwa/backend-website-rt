@@ -6,6 +6,7 @@ import bodyParser from "body-parser"
 import helemet from "helmet"
 import userAccesRoutes from "./routes/userAcces.js"
 import postRoutes from "./routes/post.js"
+import authRoutes from "./routes/auth.js"
 import dotenv from "dotenv"
 import datasensi from "./routes/adminAcces.js"
 import { apiLimiter } from "./middlewares/rateLimiter.js"
@@ -32,8 +33,7 @@ app.use(bodyParser.json())
 app.use(masuk)
 
 //routes 
-
-
+app.use("/auth", authRoutes)
 app.use("/post", postRoutes)
 app.use("/admin", datasensi)
 app.use("/resident", userAccesRoutes)

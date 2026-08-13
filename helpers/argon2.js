@@ -4,7 +4,7 @@ import argon2, { hash } from "argon2";
 export async function argonhash(inputPassword) {
 
     try {
-        const hash= await argon2.hash(inputPassword, {
+        const hash= await argon2.hash(String(inputPassword), {
             type:argon2.argon2id,
             memoryCost: 2 ** 17,
             timeCost:4,
@@ -19,7 +19,7 @@ export async function argonhash(inputPassword) {
 
 export async function argonverify(hashpass, password) {
     try {
-        const rehash = await argon2.verify(hashpass, password )
+        const rehash = await argon2.verify(hashpass, String(password).trim() )
         if (rehash) {
             console.log("cekring")
             return true

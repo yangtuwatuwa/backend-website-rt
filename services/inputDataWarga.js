@@ -24,8 +24,12 @@ export async function listWarganya() {
         
         const decryptedWarga = hasilnya.map(w => {
             try {
+                const hasAccountBool = Boolean(w.account_id);
                 return {
                     ...w,
+                    hasAccount: hasAccountBool,
+                    has_account: hasAccountBool,
+                    status_akun: hasAccountBool ? "registered" : "unregistered",
                     no_kk: maskData(decryptEmails(w.no_kk)),
                     house_blok: w.house_blok ? decryptEmails(w.house_blok) : null,
                     house_nomor: w.house_nomor ? decryptEmails(w.house_nomor) : null,
@@ -34,7 +38,13 @@ export async function listWarganya() {
                     kepala_keluarga_nohp: w.kepala_keluarga_nohp ? decryptEmails(w.kepala_keluarga_nohp) : null
                 }
             } catch (decErr) {
-                return w;
+                const hasAccountBool = Boolean(w.account_id);
+                return {
+                    ...w,
+                    hasAccount: hasAccountBool,
+                    has_account: hasAccountBool,
+                    status_akun: hasAccountBool ? "registered" : "unregistered"
+                };
             }
         })
         return decryptedWarga

@@ -33,7 +33,22 @@ export async function getAllPengaduan() {
     }
 }
 
-export async function updatePengaduanStatus(id, status) {
+export async function updatePengaduanStatus(id, status, catatan = null) {
+    if (catatan !== null && catatan !== undefined) {
+        try {
+            const [hasil] = await db.execute("UPDATE report SET status = ?, catatan = ? WHERE id = ?", [status, catatan, id])
+            return hasil
+        } catch (catatanErr) {
+            try {
+                await db.execute("ALTER TABLE report ADD COLUMN IF NOT EXISTS catatan TEXT")
+                const [hasil] = await db.execute("UPDATE report SET status = ?, catatan = ? WHERE id = ?", [status, catatan, id])
+                return hasil
+            } catch (alterErr) {
+                const [hasil] = await db.execute("UPDATE report SET status = ? WHERE id = ?", [status, id])
+                return hasil
+            }
+        }
+    }
     const sqlcommand = "UPDATE report SET status = ? WHERE id = ?"
     try {
         const [hasilnya] = await db.execute(sqlcommand, [status, id])
@@ -43,3 +58,15 @@ export async function updatePengaduanStatus(id, status) {
         return "error karena: " + err
     }
 }
+
+export async function deletePengaduan(id) {
+    const sqlcommand = "DELETE FROM report WHERE id = ?"
+    try {
+        const [hasilnya] = await db.execute(sqlcommand, [id])
+        return hasilnya
+    } catch (err) {
+        console.log("error bagian deletePengaduan: " + err)
+        return "error karena: " + err
+    }
+}
+

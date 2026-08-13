@@ -2,7 +2,7 @@ import { getAccountById } from "../models/login.js"
 import { getWargaById } from "../models/inputwarganya.js"
 import { getFamilyById } from "../models/resident.js"
 import { getHouseById } from "../models/houseWarga.js"
-import { createDocument, getDocumentById } from "../models/document.js"
+import { createDocument, getDocumentById, deleteDocument } from "../models/document.js"
 import { responseSucces } from "../utils/response.js"
 import fs from "fs"
 import path from "path"
@@ -66,12 +66,6 @@ export async function uploadSensitifDataController(req, res) {
                 return res.status(404).json({ pesan: "Data rumah keluarga tidak ditemukan masbro" })
             }
 
-            // Warga dengan status kontrak ditolak melakukan upload mandiri
-            if (house.status === "kontrak") {
-                if (fs.existsSync(file.path)) fs.unlinkSync(file.path)
-                console.log(`[Response Upload Sensitif Data] Gagal: Kontrak ditolak upload mandiri`)
-                return res.status(403).json({ pesan: "Akses ditolak, warga dengan status kontrak tidak diizinkan mengupload berkas sensitif mandiri!" })
-            }
         }
 
         const results = await createDocument(warga.family_id, id, type, file.filename)
@@ -92,9 +86,9 @@ export async function uploadSensitifDataController(req, res) {
 }
 
 export async function downloadSensitifFileController(req, res) {
-    const { document_id } = req.params
+    const targetDocId = req.params.document_id || req.params.id
     const userId = req.user.id
-    console.log(`[Request Download Sensitif File] document_id: ${document_id}, byUserId: ${userId}`)
+    console.log(`[Request Download Sensitif File] document_id: ${targetDocId}, byUserId: ${userId}`)
 
     try {
         const dataUser = await getAccountById(userId)
@@ -103,7 +97,7 @@ export async function downloadSensitifFileController(req, res) {
             return res.status(404).json({ pesan: "Akun tidak ditemukan mas" })
         }
 
-        const document = await getDocumentById(document_id)
+        const document = await getDocumentById(targetDocId)
         if (!document || (typeof document === "string" && document.startsWith("error"))) {
             console.log(`[Response Download Sensitif File] Gagal: Dokumen tidak ditemukan`)
             return res.status(404).json({ pesan: "Dokumen tidak ditemukan, cuy!" })
@@ -130,3 +124,78 @@ export async function downloadSensitifFileController(req, res) {
         return res.status(500).json({ pesan: "error mas di controller downloadSensitifFileController: " + err })
     }
 }
+
+export async function deleteSensitifDataController(req, res) {
+    const targetDocId = req.params.id || req.params.document_id
+    const userId = req.user.id
+    console.log(`[Request Delete Sensitif Data] document_id: ${targetDocId}, byUserId: ${userId}`)
+
+    try {
+        const dataUser = await getAccountById(userId)
+        if (!dataUser || dataUser === "error" || dataUser.length === 0) {
+            return res.status(404).json({ pesan: "Akun tidak ditemukan mas" })
+        }
+
+        const document = await getDocumentById(targetDocId)
+        if (!document || (typeof document === "string" && document.startsWith("error"))) {
+            return res.status(404).json({ pesan: "Dokumen tidak ditemukan, cuy!" })
+        }
+
+        if (req.user.role === "warga") {
+            const userFamilyId = dataUser[0].family_id
+            if (String(userFamilyId) !== String(document.family_id)) {
+                return res.status(403).json({ pesan: "Akses ditolak, ini bukan dokumen keluarga lu cuy!" })
+            }
+        }
+
+        if (document.file_path) {
+            const filePath = path.resolve("./secure_uploads", document.file_path)
+            if (fs.existsSync(filePath)) {
+                try {
+                    fs.unlinkSync(filePath)
+                } catch (unlinkErr) {
+                    console.log("[Warning] Gagal me-unlink berkas fisik:", unlinkErr)
+                }
+            }
+        }
+
+        const deleteResult = await deleteDocument(targetDocId)
+        if (typeof deleteResult === "string" && deleteResult.startsWith("error")) {
+            return res.status(400).json({ pesan: deleteResult })
+        }
+
+        return responseSucces(200, deleteResult, "Dokumen kependudukan terunggah berhasil dihapus!", res)
+    } catch (err) {
+        console.log(`[Error Delete Sensitif Data]:`, err)
+        return res.status(500).json({ pesan: "error mas di controller deleteSensitifDataController: " + err })
+    }
+}
+
+export async function getWargaKtpController(req, res) {
+    const wargaId = req.params.id || req.params.warga_id;
+    console.log(`[Request Get Warga KTP File] wargaId: ${wargaId}`);
+
+    try {
+        const [docs] = await db.execute(
+            "SELECT * FROM document WHERE (resident_id = ? OR family_id = (SELECT family_id FROM warga WHERE id = ?)) AND (type = 'ktp' OR type LIKE '%ktp%') ORDER BY id DESC LIMIT 1",
+            [wargaId, wargaId]
+        );
+
+        if (!docs || docs.length === 0) {
+            return res.status(404).json({ pesan: "Foto KTP belum diupload untuk warga ini masbro" });
+        }
+
+        const document = docs[0];
+        const filePath = path.resolve("./secure_uploads", document.file_path);
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ pesan: "File fisik KTP tidak ditemukan di server" });
+        }
+
+        return res.sendFile(filePath);
+    } catch (err) {
+        console.log(`[Error Get Warga KTP File]:`, err);
+        return res.status(500).json({ pesan: "error di controller getWargaKtpController: " + err });
+    }
+}
+
+

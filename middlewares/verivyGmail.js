@@ -35,6 +35,11 @@ import z from "zod";
 
 export const verifyInput = (schema) => {
     return (req, res, next) => {
+        if (req.body) {
+            if (!req.body.judul && req.body.title) req.body.judul = req.body.title
+            if (!req.body.isi && req.body.content) req.body.isi = req.body.content
+            if (!req.body.deskripsi && req.body.description) req.body.deskripsi = req.body.description
+        }
 
         const result = schema.safeParse(req.body);
 
@@ -49,4 +54,4 @@ export const verifyInput = (schema) => {
 
         next();
     };
-};
+};

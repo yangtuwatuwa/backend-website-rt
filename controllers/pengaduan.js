@@ -1,4 +1,4 @@
-import { createPengaduan, listPengaduanWarga, listAllPengaduan, changePengaduanStatus } from "../services/pengaduan.js"
+import { createPengaduan, listPengaduanWarga, listAllPengaduan, changePengaduanStatus, removePengaduan } from "../services/pengaduan.js"
 import { responseSucces } from "../utils/response.js"
 import { emitSyncEvent } from "../utils/socket.js"
 
@@ -53,10 +53,11 @@ export async function reviewPengaduan(req, res) {
 
 export async function approvePengaduan(req, res) {
     const { id } = req.params
-    const { status } = req.body
-    console.log(`[Request Approve Pengaduan] id: ${id}, status: ${status}`)
+    const { status, catatan, catatan_tindak_lanjut, tindak_lanjut } = req.body
+    const note = catatan || catatan_tindak_lanjut || tindak_lanjut || null
+    console.log(`[Request Approve Pengaduan] id: ${id}, status: ${status}, catatan: ${note}`)
     try {
-        const hasilnya = await changePengaduanStatus(id, status)
+        const hasilnya = await changePengaduanStatus(id, status, note)
         console.log(`[Response Approve Pengaduan] hasil:`, hasilnya)
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return res.status(400).json({ pesan: hasilnya })
@@ -68,3 +69,21 @@ export async function approvePengaduan(req, res) {
         return res.status(500).json("salah dibagian controller approvePengaduan: " + err)
     }
 }
+
+export async function removePengaduanController(req, res) {
+    const { id } = req.params
+    console.log(`[Request Remove Pengaduan] id: ${id}`)
+    try {
+        const hasilnya = await removePengaduan(id)
+        console.log(`[Response Remove Pengaduan] hasil:`, hasilnya)
+        if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
+            return res.status(400).json({ pesan: hasilnya })
+        }
+        emitSyncEvent("pengaduan")
+        return responseSucces(200, hasilnya, "laporan pengaduan berhasil dihapus", res)
+    } catch (err) {
+        console.log(`[Error Remove Pengaduan]:`, err)
+        return res.status(500).json("salah dibagian controller removePengaduanController: " + err)
+    }
+}
+

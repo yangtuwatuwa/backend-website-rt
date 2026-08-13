@@ -16,9 +16,59 @@ import {
     insertLedger, 
     getLedgerStats, 
     getLedgerList, 
-    getArrearsTracking 
+    getArrearsTracking,
+    getMonthlyFinancialSummary,
+    generateBatchBillsModel
 } from "../models/financial.js"
+
+export async function generateBatchBillsService({ title, amount, startMonth, startYear, endMonth, endYear }) {
+    try {
+        const result = await generateBatchBillsModel(amount, startMonth, startYear, endMonth, endYear)
+        return {
+            title: title || `IPL ${result.start_year}`,
+            ...result,
+            message: `Tagihan IPL periode ${result.start_month}/${result.start_year} - ${result.end_month}/${result.end_year} berhasil diterbitkan untuk ${result.total_families} KK!`
+        }
+    } catch (err) {
+        console.log("error generateBatchBillsService:", err)
+        return "error generateBatchBillsService: " + err
+    }
+}
+
 import { getWargas } from "../models/inputwarganya.js"
+
+export async function recordExpenseService(amount, sourceType, description, receiptFile = null) {
+    const allowedExpenses = ["kebersihan", "keamanan", "taman", "operasional_rt", "kematian", "sosial", "kegiatan", "lainnya"]
+    const cleanType = String(sourceType || "lainnya").toLowerCase().trim()
+    const targetType = allowedExpenses.includes(cleanType) ? cleanType : "lainnya"
+
+    try {
+        const result = await insertLedger("out", amount, targetType, description, receiptFile)
+        return result
+    } catch (err) {
+        console.log(err)
+        return "error recordExpenseService: " + err
+    }
+}
+
+export async function getFinancialSummaryService(year = new Date().getFullYear()) {
+    try {
+        const summary = await getMonthlyFinancialSummary(year)
+        const stats = await getLedgerStats()
+        const settings = await getFinancialSettings()
+        return {
+            year: parseInt(year),
+            previous_balance: settings ? settings.previous_balance : 0,
+            total_income: stats ? parseInt(stats.total_income) || 0 : 0,
+            total_expense: stats ? parseInt(stats.total_expense) || 0 : 0,
+            monthly_breakdown: summary
+        }
+
+    } catch (err) {
+        console.log(err)
+        return "error getFinancialSummaryService: " + err
+    }
+}
 
 export async function payIplService(familyId, months, year, amount, filename) {
     if (!Array.isArray(months) || months.length === 0) {
@@ -119,20 +169,6 @@ export async function approveKasPaymentService(paymentId, status) {
     }
 }
 
-export async function recordExpenseService(amount, sourceType, description) {
-    const allowedExpenses = ["kebersihan", "keamanan", "taman", "operasional_rt", "kematian", "sosial", "kegiatan", "lainnya"]
-    if (!allowedExpenses.includes(sourceType)) {
-        return `error: pos pengeluaran ${sourceType} tidak valid masbro`
-    }
-
-    try {
-        const result = await insertLedger("out", amount, sourceType, description)
-        return result
-    } catch (err) {
-        console.log(err)
-        return "error recordExpenseService: " + err
-    }
-}
 
 export async function recordIncomeService(amount, sourceType, description) {
     const cleanType = String(sourceType).toLowerCase().trim()

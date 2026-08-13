@@ -48,3 +48,35 @@ export async function getVoteResults() {
         return "error karena: " + err
     }
 }
+export async function insertKaryawan(nama, jabatan, deskripsi = "", foto = null) {
+    const sqlcommand = "INSERT INTO karyawan (id, nama, jabatan) VALUES (NULL, ?, ?)"
+
+    const params = [nama, jabatan]
+    
+    try {
+        const [result] = await db.execute("INSERT INTO karyawan (id, nama, jabatan, deskripsi, foto) VALUES (NULL, ?, ?, ?, ?)", [nama, jabatan, deskripsi || "", foto || ""])
+        return result
+    } catch (err) {
+        try {
+            await db.execute("ALTER TABLE karyawan ADD COLUMN IF NOT EXISTS deskripsi TEXT, ADD COLUMN IF NOT EXISTS foto VARCHAR(255)")
+            const [result] = await db.execute("INSERT INTO karyawan (id, nama, jabatan, deskripsi, foto) VALUES (NULL, ?, ?, ?, ?)", [nama, jabatan, deskripsi || "", foto || ""])
+            return result
+        } catch (alterErr) {
+            const [result] = await db.execute(sqlcommand, params)
+            return result
+        }
+    }
+}
+
+export async function deleteKaryawan(id) {
+    const sqlcommand = "DELETE FROM karyawan WHERE id = ?"
+    try {
+        await db.execute("DELETE FROM vote_karyawan WHERE karyawan_id = ?", [id])
+        const [result] = await db.execute(sqlcommand, [id])
+        return result
+    } catch (err) {
+        console.log("error bagian deleteKaryawan: " + err)
+        return "error karena: " + err
+    }
+}
+

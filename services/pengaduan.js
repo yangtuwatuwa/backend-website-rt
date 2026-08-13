@@ -1,4 +1,4 @@
-import { inputPengaduan, getPengaduanByFamily, getAllPengaduan, updatePengaduanStatus } from "../models/pengaduan.js"
+import { inputPengaduan, getPengaduanByFamily, getAllPengaduan, updatePengaduanStatus, deletePengaduan } from "../models/pengaduan.js"
 import { getAccountById } from "../models/login.js"
 import { decryptEmails } from "../helpers/ciihper.js"
 import { maskData } from "../utils/masking.js"
@@ -67,17 +67,28 @@ export async function listAllPengaduan() {
     }
 }
 
-export async function changePengaduanStatus(id, status) {
-    const allowedStatus = ["pending", "disetujui", "ditolak"]
-    if (!allowedStatus.includes(status)) {
-        return "error: status harus pending, disetujui, atau ditolak masbro"
+export async function changePengaduanStatus(id, status, catatan = null) {
+    const allowedStatus = ["pending", "disetujui", "ditolak", "proses", "selesai", "Proses", "Selesai"]
+    if (status && !allowedStatus.includes(status)) {
+        return "error: status harus pending, disetujui, ditolak, Proses, atau Selesai masbro"
     }
 
     try {
-        const hasildbnya = await updatePengaduanStatus(id, status)
+        const hasildbnya = await updatePengaduanStatus(id, status, catatan)
         return hasildbnya
     } catch (err) {
         console.log(err)
         return "error mas di service: " + err
     }
 }
+
+export async function removePengaduan(id) {
+    try {
+        const hasildbnya = await deletePengaduan(id)
+        return hasildbnya
+    } catch (err) {
+        console.log(err)
+        return "error mas di service: " + err
+    }
+}
+

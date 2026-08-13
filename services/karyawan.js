@@ -1,4 +1,4 @@
-import { getKaryawanList, hasUserVoted, insertVote, getVoteResults } from "../models/karyawan.js"
+import { getKaryawanList, hasUserVoted, insertVote, getVoteResults, insertKaryawan, deleteKaryawan } from "../models/karyawan.js"
 
 export async function listKaryawan() {
     try {
@@ -7,6 +7,29 @@ export async function listKaryawan() {
     } catch (err) {
         console.log(err)
         return "error mas di service listKaryawan: " + err
+    }
+}
+
+export async function addKaryawan(nama, jabatan, deskripsi = "", foto = null) {
+    if (!nama || !jabatan) {
+        return "error: Nama dan Jabatan kandidat karyawan wajib diisi masbro!"
+    }
+    try {
+        const hasilnya = await insertKaryawan(nama, jabatan, deskripsi, foto)
+        return hasilnya
+    } catch (err) {
+        console.log(err)
+        return "error mas di service addKaryawan: " + err
+    }
+}
+
+export async function removeKaryawan(id) {
+    try {
+        const hasilnya = await deleteKaryawan(id)
+        return hasilnya
+    } catch (err) {
+        console.log(err)
+        return "error mas di service removeKaryawan: " + err
     }
 }
 
@@ -39,3 +62,4 @@ export async function listVoteResults() {
         return "error mas di service listVoteResults: " + err
     }
 }
+

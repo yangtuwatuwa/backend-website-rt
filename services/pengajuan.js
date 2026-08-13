@@ -1,4 +1,4 @@
-import { inputPengajuan, getPengajuanByFamily, getAllPengajuan, updatePengajuanStatus } from "../models/pengajuan.js"
+import { inputPengajuan, getPengajuanByFamily, getAllPengajuan, updatePengajuanStatus, updatePengajuanArchivedStatus } from "../models/pengajuan.js"
 import { getAccountById } from "../models/login.js"
 import { decryptEmails } from "../helpers/ciihper.js"
 import { maskData } from "../utils/masking.js"
@@ -35,8 +35,14 @@ export async function listPengajuanWarga(userId) {
             return "error: warga belum terikat dengan KK mana pun"
         }
         
-        const hasildbnya = await getPengajuanByFamily(familyId)
-        return hasildbnya
+        const hasilnya = await getPengajuanByFamily(familyId)
+        if (!Array.isArray(hasilnya)) return hasilnya
+
+        return hasilnya.map(p => ({
+            ...p,
+            is_archived: Boolean(p.is_archived),
+            is_archived_bool: Boolean(p.is_archived)
+        }))
     } catch (err) {
         console.log(err)
         return "error mas di service: " + err
@@ -54,10 +60,16 @@ export async function listAllPengajuan() {
             try {
                 return {
                     ...p,
+                    is_archived: Boolean(p.is_archived),
+                    is_archived_bool: Boolean(p.is_archived),
                     no_kk: p.no_kk ? maskData(decryptEmails(p.no_kk)) : null
                 }
             } catch (decErr) {
-                return p
+                return {
+                    ...p,
+                    is_archived: Boolean(p.is_archived),
+                    is_archived_bool: Boolean(p.is_archived)
+                }
             }
         })
         return decryptedList
@@ -81,3 +93,14 @@ export async function changePengajuanStatus(id, status) {
         return "error mas di service: " + err
     }
 }
+
+export async function archivePengajuanService(id, isArchived = true) {
+    try {
+        const hasildbnya = await updatePengajuanArchivedStatus(id, isArchived)
+        return hasildbnya
+    } catch (err) {
+        console.log(err)
+        return "error mas di service archivePengajuanService: " + err
+    }
+}
+

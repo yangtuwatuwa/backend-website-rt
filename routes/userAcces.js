@@ -6,14 +6,22 @@ import { addPengajuan, checkStatusPengajuan } from "../controllers/pengajuan.js"
 import { getAnnouncementsController } from "../controllers/announcement.js"
 import { getAgendasController } from "../controllers/agenda.js"
 import { createWargaByResident, updateWargaDetailsController } from "../controllers/residentController.js"
-import { uploadSensitifDataController, downloadSensitifFileController } from "../controllers/documentController.js"
+import { uploadSensitifDataController, downloadSensitifFileController, deleteSensitifDataController } from "../controllers/documentController.js"
 import { uploadSensitifMiddleware } from "../middlewares/multerConfig.js"
+
+import { getMyAccountController, updateMyAccountController } from "../controllers/accountProfileController.js"
 
 const router = express.Router()
 
 
 router.get("/getmyfamily/:id", jwtAuth, family)
 router.patch("/password", jwtAuth, changePasswordController)
+
+// Route Profil / Akun Mandiri User (Lihat & Edit Username, Email, Password)
+router.get("/my-account", jwtAuth, getMyAccountController)
+router.get("/profile", jwtAuth, getMyAccountController)
+router.patch("/my-account", jwtAuth, updateMyAccountController)
+router.patch("/profile", jwtAuth, updateMyAccountController)
 
 // Route Pengaduan Warga
 router.post("/pengaduan", jwtAuth, addPengaduan)
@@ -23,12 +31,14 @@ router.get("/pengaduan", jwtAuth, checkStatusPengaduan)
 router.post("/pengajuan", jwtAuth, addPengajuan)
 router.get("/pengajuan", jwtAuth, checkStatusPengajuan)
 
-// Route Pendaftaran Anggota Keluarga Mandiri (Pending)
-router.post("/datawarga", jwtAuth, createWargaByResident)
+// Route Pendaftaran Anggota Keluarga Mandiri (Pending & Upload KTP Opsional)
+router.post("/datawarga", jwtAuth, uploadSensitifMiddleware, createWargaByResident)
 
-// Route Upload & Download Dokumen Sensitif Warga
+// Route Upload, Download & Hapus Dokumen Sensitif Warga
 router.post("/uploadsensitifdata/:id", jwtAuth, uploadSensitifMiddleware, uploadSensitifDataController)
 router.get("/sensitifdata/file/:document_id", jwtAuth, downloadSensitifFileController)
+router.delete("/sensitifdata/:id", jwtAuth, deleteSensitifDataController)
+
 
 // Route Pembaruan Data Warga (Profil / Meninggal) - RBAC & Owner Only
 router.patch("/warga/:id", jwtAuth, updateWargaDetailsController)
@@ -43,9 +53,15 @@ router.get("/agenda", jwtAuth, getAgendasController)
 
 // Route Keuangan / Pembayaran Warga Mandiri
 import { payIplController, payKasController, getFamilyPaymentsController } from "../controllers/financeController.js"
-router.post("/pay-ipl", jwtAuth, uploadSensitifMiddleware, payIplController)
-router.post("/pay-kas", jwtAuth, uploadSensitifMiddleware, payKasController)
+import { idempotencyMiddleware } from "../middlewares/idempotency.js"
+import { createPaymentSessionController, checkPaymentStatusController } from "../controllers/paymentGatewayController.js"
+
+router.post("/pay-ipl", jwtAuth, idempotencyMiddleware(), uploadSensitifMiddleware, payIplController)
+router.post("/pay-kas", jwtAuth, idempotencyMiddleware(), uploadSensitifMiddleware, payKasController)
 router.get("/my-payments", jwtAuth, getFamilyPaymentsController)
+router.post("/payment-gateway/checkout", jwtAuth, idempotencyMiddleware(), createPaymentSessionController)
+router.get("/payment-gateway/status/:orderId", jwtAuth, checkPaymentStatusController)
+
 
 // Route Vote Karyawan Terbaik
 import { getKaryawanListController, postVoteController, getVoteResultsController } from "../controllers/karyawan.js"

@@ -1,4 +1,4 @@
-import { listKaryawan, castVote, listVoteResults } from "../services/karyawan.js"
+import { listKaryawan, castVote, listVoteResults, addKaryawan, removeKaryawan } from "../services/karyawan.js"
 import { responseSucces } from "../utils/response.js"
 import { emitSyncEvent } from "../utils/socket.js"
 
@@ -14,6 +14,39 @@ export async function getKaryawanListController(req, res) {
     } catch (err) {
         console.log("[Error List Karyawan]:", err)
         return res.status(500).json("salah dibagian controller getKaryawanListController: " + err)
+    }
+}
+
+export async function createKaryawanController(req, res) {
+    const { nama, jabatan, deskripsi } = req.body
+    const foto = req.file ? req.file.filename : req.body.foto || null
+    console.log(`[Request Create Karyawan] nama: ${nama}, jabatan: ${jabatan}`)
+    try {
+        const hasilnya = await addKaryawan(nama, jabatan, deskripsi, foto)
+        if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
+            return res.status(400).json({ pesan: hasilnya })
+        }
+        emitSyncEvent("vote")
+        return responseSucces(201, hasilnya, "Kandidat karyawan berhasil ditambahkan!", res)
+    } catch (err) {
+        console.log("[Error Create Karyawan]:", err)
+        return res.status(500).json("salah dibagian controller createKaryawanController: " + err)
+    }
+}
+
+export async function removeKaryawanController(req, res) {
+    const { id } = req.params
+    console.log(`[Request Remove Karyawan] id: ${id}`)
+    try {
+        const hasilnya = await removeKaryawan(id)
+        if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
+            return res.status(400).json({ pesan: hasilnya })
+        }
+        emitSyncEvent("vote")
+        return responseSucces(200, hasilnya, "Kandidat karyawan berhasil dihapus!", res)
+    } catch (err) {
+        console.log("[Error Remove Karyawan]:", err)
+        return res.status(500).json("salah dibagian controller removeKaryawanController: " + err)
     }
 }
 
@@ -55,3 +88,4 @@ export async function getVoteResultsController(req, res) {
         return res.status(500).json("salah dibagian controller getVoteResultsController: " + err)
     }
 }
+

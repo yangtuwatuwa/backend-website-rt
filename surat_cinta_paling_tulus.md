@@ -59,7 +59,9 @@ Selesai! Login berikutnya langsung masuk Dashboard
 * **Request Body:**
   ```json
   {
-    "familyId": 5
+    "familyId": 5,
+    "username": "budi123",
+    "password": "Password123"
   }
   ```
 * **Response Sukses (200):**
@@ -67,8 +69,9 @@ Selesai! Login berikutnya langsung masuk Dashboard
   {
     "response": 200,
     "output": {
-      "username": "keluarga_5",
-      "temporaryPassword": "xT8$2aQ9"
+      "username": "budi123",
+      "password": "Password123",
+      "temporaryPassword": "Password123"
     },
     "message": "Akun berhasil dibuat"
   }

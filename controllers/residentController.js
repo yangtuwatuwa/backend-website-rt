@@ -5,10 +5,15 @@ import { emitSyncEvent } from "../utils/socket.js"
 import editResident from "../services/editedResident.js"
 import { inputWarga, listRumah } from "../services/inputHouse.js"
 import { getAccountById } from "../models/login.js"
-import { getWargaById } from "../models/inputwarganya.js"
-import { getFamilyById } from "../models/resident.js"
+import { getWargaById, isKepalaKeluarga, deleteWargaById, getOtherFamilyMembers, updateFamilyHead } from "../models/inputwarganya.js"
+import { getFamilyById, getPopulationStats } from "../models/resident.js"
 import { decryptEmails } from "../helpers/ciihper.js"
 import { argonverify } from "../helpers/argon2.js"
+import { getHouseById } from "../models/houseWarga.js"
+import { createDocument } from "../models/document.js"
+import fs from "fs"
+
+
 
 export async function inputData(req, res) {
     const { noKK, home, houseId, house_id, KepalaKeluarga, kepalaKeluarga, kepala_keluarga_id } = req.body
@@ -214,37 +219,84 @@ export async function revealFamily(req, res) {
 export async function createWargaByResident(req, res) {
     const { nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, isKepalaKeluarga, is_kepala_keluarga } = req.body
     const userId = req.user.id
+    const file = req.file
     console.log(`[Request Create Warga By Resident] byUserId: ${userId}, nik: ${nik}, nama: ${nama}`)
     try {
         const dataUser = await getAccountById(userId)
         if (!dataUser || dataUser === "error" || dataUser.length === 0) {
+            if (file && file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path)
             console.log(`[Response Create Warga By Resident] Gagal: Akun tidak ditemukan`)
             return res.status(404).json({ pesan: "Akun tidak ditemukan mas" })
         }
 
         const familyId = dataUser[0].family_id
         if (!familyId) {
+            if (file && file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path)
             console.log(`[Response Create Warga By Resident] Gagal: Akun tidak memiliki familyId`)
             return res.status(400).json({ pesan: "Akun anda belum terikat dengan KK mana pun" })
         }
 
         const familyData = await getFamilyById(familyId)
         if (!familyData || (typeof familyData === "string" && familyData.startsWith("error"))) {
+            if (file && file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path)
             console.log(`[Response Create Warga By Resident] Gagal: Data KK tidak ditemukan`)
             return res.status(404).json({ pesan: "Data KK keluarga tidak ditemukan" })
         }
 
         const houseId = familyData.house_id
+        const houseData = houseId ? await getHouseById(houseId) : null
+        
+        // Deteksi apakah rumah berstatus kontrakan / sewa
+        const houseStatusStr = String(houseData?.status || "").toLowerCase()
+        const isKontrak = houseStatusStr.includes("kontrak") || houseStatusStr.includes("sewa") || houseStatusStr.includes("ngontrak")
 
-        const hasilnya = await warganyain(nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, "diterima", isKepalaKeluarga || is_kepala_keluarga)
+        // Jika rumah berstatus kontrakan/sewa -> "pending" (membutuhkan persetujuan RT)
+        // Jika rumah berstatus tetap/pribadi/milik sendiri -> langsung "diterima" (aktif)
+        const initialStatus = isKontrak ? "pending" : "diterima"
+
+        const hasilnya = await warganyain(nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, initialStatus, isKepalaKeluarga || is_kepala_keluarga)
         console.log(`[Response Create Warga By Resident] hasil:`, hasilnya)
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
+            if (file && file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path)
             return res.status(400).json({ pesan: hasilnya })
         }
+
+        const newCitizenId = hasilnya.insertId || null
+        let documentId = null
+
+        // Jika file berkas identitas diunggah bersamaan dengan pendaftaran warga (1-step upload)
+        if (file && newCitizenId) {
+            try {
+                const requestedType = req.body.type || req.body.document_type;
+                const calcUmur = Number(umur) || 0;
+                const finalDocType = requestedType || (calcUmur > 0 && calcUmur < 17 ? "kia" : "ktp");
+                
+                const docRes = await createDocument(familyId, newCitizenId, finalDocType, file.filename)
+                if (docRes && docRes.insertId) {
+                    documentId = docRes.insertId
+                }
+            } catch (docErr) {
+                console.log("[Warning] Gagal me-link file berkas identitas di createWargaByResident:", docErr)
+            }
+        }
+
         emitSyncEvent("warga")
-        return responseSucces(200, hasilnya, "pendaftaran anggota keluarga berhasil, data langsung aktif masbro!", res)
+
+        const pesanSuccess = isKontrak
+            ? "Pendaftaran anggota keluarga berhasil diajukan! Karena status rumah keluarga anda adalah kontrakan/sewa, data warga berstatus PENDING dan membutuhkan verifikasi/persetujuan dari RT."
+            : "Pendaftaran anggota keluarga berhasil! Karena status rumah adalah tetap/pribadi, data warga langsung DITERIMA (aktif)."
+
+        return responseSucces(200, {
+            warga_id: newCitizenId,
+            status: initialStatus,
+            house_status: houseData?.status || "tetap",
+            is_kontrak: isKontrak,
+            document_id: documentId,
+            has_ktp: Boolean(file || documentId)
+        }, pesanSuccess, res)
     } catch (err) {
         console.log(`[Error Create Warga By Resident]:`, err)
+        if (file && file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path)
         return res.status(500).json({ pesan: "salah dibagian controller createWargaByResident: " + err })
     }
 }
@@ -317,5 +369,88 @@ export async function searchResidentController(req, res) {
     } catch (err) {
         console.log(`[Error Search Warga]:`, err)
         return res.status(500).json({ pesan: "error mas di controller searchResidentController: " + err })
+    }
+}
+
+export async function getPopulationStatsController(req, res) {
+    console.log(`[Request Get Population Stats]`)
+    try {
+        const stats = await getPopulationStats()
+        console.log(`[Response Get Population Stats]`, stats)
+        if (typeof stats === "string" && stats.startsWith("error")) {
+            return res.status(400).json({ pesan: stats })
+        }
+        return responseSucces(200, stats, "Data statistik kependudukan RT berhasil diambil masbro", res)
+    } catch (err) {
+        console.log(`[Error Get Population Stats]:`, err)
+        return res.status(500).json({ pesan: "error mas di controller getPopulationStatsController: " + err })
+    }
+}
+
+/**
+ * Hapus data warga berdasarkan ID.
+ * RULES:
+ * - Kepala keluarga TIDAK BOLEH dihapus (proteksi)
+ * - Hanya bisa diakses oleh RT dan Sekretaris
+ * - Warga harus exist di database
+ */
+export async function deleteWargaController(req, res) {
+    const { id } = req.params
+    console.log(`[Request Delete Warga] targetId: ${id}, byUserId: ${req.user.id}, role: ${req.user.role}`)
+
+    try {
+        // 1. Cek apakah warga dengan ID ini ada
+        const warga = await getWargaById(id)
+        if (!warga || (typeof warga === "string" && warga.startsWith("error"))) {
+            console.log(`[Response Delete Warga] Gagal: Warga id ${id} tidak ditemukan`)
+            return res.status(404).json({ 
+                success: false,
+                pesan: "Data warga tidak ditemukan" 
+            })
+        }
+
+        // 2. Cek apakah warga ini terdaftar sebagai kepala_keluarga_id di tabel family
+        const isHead = await isKepalaKeluarga(id)
+        if (isHead && warga.family_id) {
+            // Cek apakah ada anggota keluarga lain di KK ini
+            const otherMembers = await getOtherFamilyMembers(warga.family_id, id)
+            if (otherMembers && otherMembers.length > 0) {
+                // Auto-healing: Pindahkan kepala_keluarga_id ke anggota keluarga lain (warga paling lama)
+                const newHead = otherMembers[0]
+                await updateFamilyHead(warga.family_id, newHead.id)
+                console.log(`[Auto-Heal Delete] Warga ID ${id} terdaftar sebagai Kepala Keluarga. Kepala keluarga dipindahkan ke ${newHead.nama} (ID ${newHead.id}).`)
+            } else {
+                // Satu-satunya anggota & Kepala Keluarga -> Blokir untuk mencegah orphan data / KK kosong
+                console.log(`[Response Delete Warga] Gagal: Warga id ${id} adalah satu-satunya Kepala Keluarga di KK ini`)
+                return res.status(403).json({ 
+                    success: false,
+                    pesan: "Warga ini adalah satu-satunya Kepala Keluarga di KK ini. Hapus atau alihkan Kartu Keluarga (KK) terlebih dahulu." 
+                })
+            }
+        }
+
+        // 3. Hapus warga aman tanpa orphan data
+        const result = await deleteWargaById(id)
+        console.log(`[Response Delete Warga] Sukses: Warga id ${id} (${warga.nama}) berhasil dihapus`)
+
+        emitSyncEvent("warga")
+
+        return res.status(200).json({
+            success: true,
+            response: 200,
+            data: {
+                deletedId: Number(id),
+                nama: warga.nama,
+                family_id: warga.family_id
+            },
+            message: `Data warga "${warga.nama}" berhasil dihapus dari sistem`
+        })
+
+    } catch (err) {
+        console.log(`[Error Delete Warga]:`, err)
+        return res.status(500).json({ 
+            success: false,
+            pesan: "error mas di controller deleteWargaController: " + err 
+        })
     }
 }

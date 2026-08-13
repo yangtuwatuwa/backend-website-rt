@@ -7,7 +7,10 @@ import {
     recordIncomeService,
     recordManualPaymentService,
     getDashboardStatsService, 
-    getTrackingService 
+    getTrackingService,
+    getFinancialSummaryService,
+    generateBatchBillsService
+
 } from "../services/financialService.js"
 import { 
     getFinancialSettings, 
@@ -233,11 +236,20 @@ export async function approveKasPaymentController(req, res) {
 }
 
 export async function recordExpenseController(req, res) {
-    const { amount, sourceType, description } = req.body
-    console.log(`[Request Record Expense] amount: ${amount}, sourceType: ${sourceType}, description: ${description}`)
+    const { amount, sourceType, pos_pengeluaran, category, description, keterangan } = req.body
+    const targetAmount = amount
+    const targetType = sourceType || pos_pengeluaran || category || "lainnya"
+    const targetDesc = description || keterangan || "-"
+    const receiptFile = req.file ? req.file.filename : null
+
+    console.log(`[Request Record Expense] amount: ${targetAmount}, sourceType: ${targetType}, receiptFile: ${receiptFile}`)
+
+    if (!targetAmount || isNaN(targetAmount)) {
+        return res.status(400).json({ pesan: "Nominal pengeluaran (amount) wajib diisi angka valid masbro!" })
+    }
 
     try {
-        const result = await recordExpenseService(parseInt(amount), sourceType, description)
+        const result = await recordExpenseService(parseInt(targetAmount), targetType, targetDesc, receiptFile)
         console.log("[Response Record Expense] hasil:", result)
         if (typeof result === "string" && result.startsWith("error")) {
             return res.status(400).json({ pesan: result })
@@ -250,6 +262,22 @@ export async function recordExpenseController(req, res) {
         return res.status(500).json({ pesan: "Error di controller recordExpenseController: " + err })
     }
 }
+
+export async function getFinancialSummaryController(req, res) {
+    const year = req.query.year || new Date().getFullYear()
+    console.log(`[Request Get Financial Summary] year: ${year}`)
+    try {
+        const summary = await getFinancialSummaryService(year)
+        if (typeof summary === "string" && summary.startsWith("error")) {
+            return res.status(400).json({ pesan: summary })
+        }
+        return responseSucces(200, summary, "Rekapitulasi arus kas bulanan berhasil diambil masbro", res)
+    } catch (err) {
+        console.log("[Error Get Financial Summary]:", err)
+        return res.status(500).json({ pesan: "Error di controller getFinancialSummaryController: " + err })
+    }
+}
+
 
 export async function recordIncomeController(req, res) {
     const { amount, sourceType, description } = req.body
@@ -453,3 +481,37 @@ export async function recordManualPaymentController(req, res) {
         return res.status(500).json({ pesan: "Error di controller recordManualPaymentController: " + err })
     }
 }
+
+export async function generateBatchBillsController(req, res) {
+    const { title, nominal, amount, startMonth, start_month, startYear, start_year, endMonth, end_month, endYear, end_year } = req.body
+
+    const targetAmount = nominal || amount
+    const targetStartMonth = startMonth || start_month || 1
+    const targetStartYear = startYear || start_year || new Date().getFullYear()
+    const targetEndMonth = endMonth || end_month || 12
+    const targetEndYear = endYear || end_year || targetStartYear
+
+    console.log(`[Request Generate Batch Bills] title: ${title}, amount: ${targetAmount}, period: ${targetStartMonth}/${targetStartYear} - ${targetEndMonth}/${targetEndYear}`)
+
+    try {
+        const result = await generateBatchBillsService({
+            title,
+            amount: targetAmount,
+            startMonth: targetStartMonth,
+            startYear: targetStartYear,
+            endMonth: targetEndMonth,
+            endYear: targetEndYear
+        })
+
+        if (typeof result === "string" && result.startsWith("error")) {
+            return res.status(400).json({ pesan: result })
+        }
+
+        emitSyncEvent("finance")
+        return responseSucces(201, result, "Tagihan IPL periode berhasil diterbitkan untuk seluruh warga aktif!", res)
+    } catch (err) {
+        console.log("[Error Generate Batch Bills]:", err)
+        return res.status(500).json({ pesan: "Error di controller generateBatchBillsController: " + err })
+    }
+}
+

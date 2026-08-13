@@ -32,3 +32,15 @@ export async function getDocumentsByResident(residentId) {
         return "error karena: " + err
     }
 }
+
+export async function deleteDocument(id) {
+    const sqlcommand = "DELETE FROM document WHERE id = ?"
+    try {
+        const [result] = await db.execute(sqlcommand, [id])
+        return result
+    } catch (err) {
+        console.log("error deleteDocument:", err)
+        return "error karena: " + err
+    }
+}
+

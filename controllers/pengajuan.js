@@ -1,4 +1,4 @@
-import { createPengajuan, listPengajuanWarga, listAllPengajuan, changePengajuanStatus } from "../services/pengajuan.js"
+import { createPengajuan, listPengajuanWarga, listAllPengajuan, changePengajuanStatus, archivePengajuanService } from "../services/pengajuan.js"
 import { responseSucces } from "../utils/response.js"
 import { emitSyncEvent } from "../utils/socket.js"
 
@@ -53,18 +53,49 @@ export async function reviewPengajuan(req, res) {
 
 export async function approvePengajuan(req, res) {
     const { id } = req.params
-    const { status } = req.body
-    console.log(`[Request Approve Pengajuan] id: ${id}, status: ${status}`)
+    const { status, is_archived, isArchived, archived } = req.body
+    console.log(`[Request Approve Pengajuan] id: ${id}, status: ${status}, is_archived: ${is_archived ?? isArchived ?? archived}`)
     try {
-        const hasilnya = await changePengajuanStatus(id, status)
-        console.log(`[Response Approve Pengajuan] hasil:`, hasilnya)
-        if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
-            return res.status(400).json({ pesan: hasilnya })
+        let hasilnya = null
+        if (status) {
+            hasilnya = await changePengajuanStatus(id, status)
+            if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
+                return res.status(400).json({ pesan: hasilnya })
+            }
         }
+
+        const targetArchive = is_archived ?? isArchived ?? archived
+        if (targetArchive !== undefined) {
+            const archiveResult = await archivePengajuanService(id, Boolean(targetArchive))
+            if (typeof archiveResult === "string" && archiveResult.startsWith("error")) {
+                return res.status(400).json({ pesan: archiveResult })
+            }
+        }
+
         emitSyncEvent("pengajuan")
-        return responseSucces(200, hasilnya, "status pengajuan berhasil diupdate", res)
+        return responseSucces(200, hasilnya || { success: true }, "pengajuan berhasil diupdate", res)
     } catch (err) {
         console.log(`[Error Approve Pengajuan]:`, err)
         return res.status(500).json("salah dibagian controller approvePengajuan: " + err)
     }
 }
+
+export async function archivePengajuanController(req, res) {
+    const { id } = req.params
+    const { is_archived, isArchived, archived } = req.body
+    const targetArchive = (is_archived ?? isArchived ?? archived) !== undefined ? Boolean(is_archived ?? isArchived ?? archived) : true
+
+    console.log(`[Request Archive Pengajuan] id: ${id}, is_archived: ${targetArchive}`)
+    try {
+        const hasilnya = await archivePengajuanService(id, targetArchive)
+        if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
+            return res.status(400).json({ pesan: hasilnya })
+        }
+        emitSyncEvent("pengajuan")
+        return responseSucces(200, hasilnya, `Surat pengajuan berhasil ${targetArchive ? 'dinyatakan selesai/diarsipkan' : 'diaktifkan kembali'}`, res)
+    } catch (err) {
+        console.log(`[Error Archive Pengajuan]:`, err)
+        return res.status(500).json("salah dibagian controller archivePengajuanController: " + err)
+    }
+}
+
