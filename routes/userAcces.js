@@ -53,21 +53,25 @@ router.get("/announcement", jwtAuth, getAnnouncementsController)
 router.get("/agenda", jwtAuth, getAgendasController)
 
 // Route Keuangan / Pembayaran Warga Mandiri
-import { payIplController, payKasController, getFamilyPaymentsController } from "../controllers/financeController.js"
+import { getFamilyPaymentsController } from "../controllers/financeController.js"
 import { idempotencyMiddleware } from "../middlewares/idempotency.js"
 import { createPaymentSessionController, checkPaymentStatusController } from "../controllers/paymentGatewayController.js"
 import { getMyBillsController, getBillDetailController, submitPaymentController } from "../controllers/iplBillingController.js"
+import { contributeKasController, getMyKasContributionsController } from "../controllers/kasController.js"
 
-router.post("/pay-ipl", jwtAuth, idempotencyMiddleware(), uploadSensitifMiddleware, payIplController)
-router.post("/pay-kas", jwtAuth, idempotencyMiddleware(), uploadSensitifMiddleware, payKasController)
-router.get("/my-payments", jwtAuth, getFamilyPaymentsController)
-router.post("/payment-gateway/checkout", jwtAuth, idempotencyMiddleware(), createPaymentSessionController)
-router.get("/payment-gateway/status/:orderId", jwtAuth, checkPaymentStatusController)
-
-// Route Tagihan & Pembayaran IPL Warga
+// Route Tagihan & Pembayaran IPL Warga (Single & Rapel)
 router.get("/ipl/bills", jwtAuth, getMyBillsController)
 router.get("/ipl/bills/:id", jwtAuth, getBillDetailController)
 router.post("/ipl/pay", jwtAuth, idempotencyMiddleware(), uploadSensitifMiddleware, submitPaymentController)
+
+// Route Iuran / Sumbangan Kas Warga
+router.post("/kas/contribute", jwtAuth, idempotencyMiddleware(), uploadSensitifMiddleware, contributeKasController)
+router.get("/kas/history", jwtAuth, getMyKasContributionsController)
+
+// Route Histori Keuangan Keluarga Terpadu & Payment Gateway
+router.get("/my-payments", jwtAuth, getFamilyPaymentsController)
+router.post("/payment-gateway/checkout", jwtAuth, idempotencyMiddleware(), createPaymentSessionController)
+router.get("/payment-gateway/status/:orderId", jwtAuth, checkPaymentStatusController)
 
 
 // Route Vote Karyawan Terbaik

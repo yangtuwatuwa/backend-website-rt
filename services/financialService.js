@@ -1,220 +1,113 @@
 import { 
     getFinancialSettings, 
     updateFinancialSettings, 
-    createIplPayment, 
-    createManualIplPayment,
-    getIplPaymentById, 
-    getPendingIplPayments, 
-    updateIplPaymentStatus, 
-    getFamilyIplHistory, 
-    createKasPayment, 
-    createManualKasPayment,
-    getKasPaymentById, 
-    getPendingKasPayments, 
-    updateKasPaymentStatus, 
-    getFamilyKasHistory, 
+    writeLedgerEntry,
     insertLedger, 
     getLedgerStats, 
     getLedgerList, 
     getArrearsTracking,
-    getMonthlyFinancialSummary,
-    generateBatchBillsModel
-} from "../models/financial.js"
+    getMonthlyFinancialSummary
+} from "../models/financial.js";
+import { getWargas } from "../models/inputwarganya.js";
+import { submitPaymentService } from "./iplBillingService.js";
+import { submitKasContributionService } from "./kasService.js";
+import pool from "../config/sqlconfig.js";
 
-export async function generateBatchBillsService({ title, amount, startMonth, startYear, endMonth, endYear }) {
-    try {
-        const result = await generateBatchBillsModel(amount, startMonth, startYear, endMonth, endYear)
-        return {
-            title: title || `IPL ${result.start_year}`,
-            ...result,
-            message: `Tagihan IPL periode ${result.start_month}/${result.start_year} - ${result.end_month}/${result.end_year} berhasil diterbitkan untuk ${result.total_families} KK!`
-        }
-    } catch (err) {
-        console.log("error generateBatchBillsService:", err)
-        return "error generateBatchBillsService: " + err
-    }
-}
-
-import { getWargas } from "../models/inputwarganya.js"
-
+/**
+ * Pencatatan Pengeluaran Kas RT (Expense)
+ */
 export async function recordExpenseService(amount, sourceType, description, receiptFile = null) {
-    const allowedExpenses = ["kebersihan", "keamanan", "taman", "operasional_rt", "kematian", "sosial", "kegiatan", "lainnya"]
-    const cleanType = String(sourceType || "lainnya").toLowerCase().trim()
-    const targetType = allowedExpenses.includes(cleanType) ? cleanType : "lainnya"
+    const allowedExpenses = ["kebersihan", "keamanan", "taman", "operasional_rt", "kematian", "sosial", "kegiatan", "lainnya"];
+    const cleanType = String(sourceType || "lainnya").toLowerCase().trim();
+    const targetType = allowedExpenses.includes(cleanType) ? cleanType : "lainnya";
 
     try {
-        const result = await insertLedger("out", amount, targetType, description, receiptFile)
-        return result
+        const result = await writeLedgerEntry({
+            type: "out",
+            amount,
+            sourceType: targetType,
+            description,
+            receiptFile
+        });
+        return result;
     } catch (err) {
-        console.log(err)
-        return "error recordExpenseService: " + err
+        console.error("error recordExpenseService:", err);
+        return "error recordExpenseService: " + err.message;
     }
 }
 
+/**
+ * Pencatatan Pemasukan Kas RT Non-Iuran (Donasi, Hibah, Subsidi, dll)
+ */
+export async function recordIncomeService(amount, sourceType, description) {
+    const cleanType = String(sourceType).toLowerCase().trim();
+    
+    // Map kategori input ke nilai ENUM yang didukung database
+    let dbSourceType = "lainnya";
+    if (cleanType === "donasi" || cleanType === "donasi_sukarela" || cleanType === "donasi / sukarela" || cleanType === "hibah") {
+        dbSourceType = "sosial";
+    } else if (cleanType === "sponsorship" || cleanType === "kegiatan") {
+        dbSourceType = "kegiatan";
+    } else if (cleanType === "subsidi" || cleanType === "lainnya") {
+        dbSourceType = "lainnya";
+    } else {
+        dbSourceType = "lainnya";
+    }
+
+    const categoryLabel = cleanType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    const finalDescription = `[${categoryLabel}] ${description}`;
+
+    try {
+        const result = await writeLedgerEntry({
+            type: "in",
+            amount,
+            sourceType: dbSourceType,
+            description: finalDescription
+        });
+        return result;
+    } catch (err) {
+        console.error("error recordIncomeService:", err);
+        return "error recordIncomeService: " + err.message;
+    }
+}
+
+/**
+ * Ringkasan Arus Kas Bulanan
+ */
 export async function getFinancialSummaryService(year = new Date().getFullYear()) {
     try {
-        const summary = await getMonthlyFinancialSummary(year)
-        const stats = await getLedgerStats()
-        const settings = await getFinancialSettings()
+        const summary = await getMonthlyFinancialSummary(year);
+        const stats = await getLedgerStats();
+        const settings = await getFinancialSettings();
         return {
             year: parseInt(year),
             previous_balance: settings ? settings.previous_balance : 0,
             total_income: stats ? parseInt(stats.total_income) || 0 : 0,
             total_expense: stats ? parseInt(stats.total_expense) || 0 : 0,
             monthly_breakdown: summary
-        }
-
+        };
     } catch (err) {
-        console.log(err)
-        return "error getFinancialSummaryService: " + err
+        console.error("error getFinancialSummaryService:", err);
+        return "error getFinancialSummaryService: " + err.message;
     }
 }
 
-export async function payIplService(familyId, months, year, amount, filename) {
-    if (!Array.isArray(months) || months.length === 0) {
-        return "error: months harus berupa array bulan masbro"
-    }
-
-    try {
-        const settings = await getFinancialSettings()
-        const iplNominal = settings ? settings.ipl_nominal : 200000
-        const totalExpected = iplNominal * months.length
-
-        // Bagi rata nominal untuk tiap bulan yang dibayar
-        const monthlyAmount = Math.round(amount / months.length)
-
-        const insertedPayments = []
-        for (const month of months) {
-            const result = await createIplPayment(familyId, monthlyAmount, month, year, filename)
-            if (typeof result === "string" && result.startsWith("error")) {
-                return result
-            }
-            insertedPayments.push(result.insertId)
-        }
-
-        return { message: "Pembayaran IPL pending berhasil dicatat masbro", payment_ids: insertedPayments }
-    } catch (err) {
-        console.log(err)
-        return "error payIplService: " + err
-    }
-}
-
-export async function payKasService(familyId, amount, category, description, filename) {
-    try {
-        const result = await createKasPayment(familyId, amount, category, description, filename)
-        return result
-    } catch (err) {
-        console.log(err)
-        return "error payKasService: " + err
-    }
-}
-
-export async function approveIplPaymentService(paymentId, status) {
-    const allowed = ["diterima", "ditolak"]
-    if (!allowed.includes(status)) {
-        return "error: status harus diterima atau ditolak masbro"
-    }
-
-    try {
-        const payment = await getIplPaymentById(paymentId)
-        if (!payment || (typeof payment === "string" && payment.startsWith("error"))) {
-            return "error: data pembayaran tidak ditemukan"
-        }
-
-        const result = await updateIplPaymentStatus(paymentId, status)
-        if (typeof result === "string" && result.startsWith("error")) {
-            return result
-        }
-
-        // Jika disetujui, masukkan ke Buku Kas (Buku Besar / Ledger)
-        if (status === "diterima") {
-            const desc = `Pembayaran IPL KK ID ${payment.family_id} (Bulan ${payment.month}/${payment.year})`
-            await insertLedger("in", payment.amount, "ipl", desc)
-        }
-
-        return result
-    } catch (err) {
-        console.log(err)
-        return "error approveIplPaymentService: " + err
-    }
-}
-
-export async function approveKasPaymentService(paymentId, status) {
-    const allowed = ["diterima", "ditolak"]
-    if (!allowed.includes(status)) {
-        return "error: status harus diterima atau ditolak masbro"
-    }
-
-    try {
-        const payment = await getKasPaymentById(paymentId)
-        if (!payment || (typeof payment === "string" && payment.startsWith("error"))) {
-            return "error: data pembayaran tidak ditemukan"
-        }
-
-        const result = await updateKasPaymentStatus(paymentId, status)
-        if (typeof result === "string" && result.startsWith("error")) {
-            return result
-        }
-
-        // Jika disetujui, masukkan ke Buku Kas (Buku Besar / Ledger)
-        if (status === "diterima") {
-            const desc = `Iuran Kas [${payment.category.toUpperCase()}] - ${payment.description} (KK ID ${payment.family_id})`
-            await insertLedger("in", payment.amount, "kas", desc)
-        }
-
-        return result
-    } catch (err) {
-        console.log(err)
-        return "error approveKasPaymentService: " + err
-    }
-}
-
-
-export async function recordIncomeService(amount, sourceType, description) {
-    const cleanType = String(sourceType).toLowerCase().trim()
-    
-    // Map frontend categories to existing database ENUM values
-    let dbSourceType = "lainnya"
-    if (cleanType === "donasi" || cleanType === "donasi_sukarela" || cleanType === "donasi / sukarela" || cleanType === "hibah") {
-        dbSourceType = "sosial"
-    } else if (cleanType === "sponsorship" || cleanType === "kegiatan") {
-        dbSourceType = "kegiatan"
-    } else if (cleanType === "subsidi" || cleanType === "lainnya") {
-        dbSourceType = "lainnya"
-    } else {
-        dbSourceType = "lainnya"
-    }
-
-    // Format description with the original category label for auditing
-    const categoryLabel = cleanType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
-    const finalDescription = `[${categoryLabel}] ${description}`
-
-    try {
-        const result = await insertLedger("in", amount, dbSourceType, finalDescription)
-        return result
-    } catch (err) {
-        console.log("error recordIncomeService:", err)
-        return "error recordIncomeService: " + err
-    }
-}
-
+/**
+ * Statistik Dashboard Finansial & Kas RT
+ */
 export async function getDashboardStatsService() {
     try {
-        // 1. Hitung total warga
-        const wargas = await getWargas()
-        const totalWarga = Array.isArray(wargas) ? wargas.length : 0
+        const wargas = await getWargas();
+        const totalWarga = Array.isArray(wargas) ? wargas.length : 0;
 
-        // 2. Ambil pengaturan keuangan (saldo awal)
-        const settings = await getFinancialSettings()
-        const previousBalance = settings ? settings.previous_balance : 0
+        const settings = await getFinancialSettings();
+        const previousBalance = settings ? settings.previous_balance : 0;
 
-        // 3. Hitung total pemasukan & pengeluaran dari ledger
-        const ledgerStats = await getLedgerStats()
-        const income = ledgerStats ? parseInt(ledgerStats.total_income) || 0 : 0
-        const expense = ledgerStats ? parseInt(ledgerStats.total_expense) || 0 : 0
+        const ledgerStats = await getLedgerStats();
+        const income = ledgerStats ? parseInt(ledgerStats.total_income) || 0 : 0;
+        const expense = ledgerStats ? parseInt(ledgerStats.total_expense) || 0 : 0;
 
-        // 4. Hitung saldo berjalan saat ini
-        const currentBalance = previousBalance + income - expense
+        const currentBalance = previousBalance + income - expense;
 
         return {
             total_warga: totalWarga,
@@ -222,46 +115,125 @@ export async function getDashboardStatsService() {
             total_income: income,
             total_expense: expense,
             current_balance: currentBalance
-        }
+        };
     } catch (err) {
-        console.log(err)
-        return "error getDashboardStatsService: " + err
+        console.error("error getDashboardStatsService:", err);
+        return "error getDashboardStatsService: " + err.message;
     }
 }
 
+/**
+ * Pelacakan Tunggakan IPL Warga
+ */
 export async function getTrackingService(month, year) {
     try {
-        const result = await getArrearsTracking(month, year)
-        return result
+        const result = await getArrearsTracking(month, year);
+        return result;
     } catch (err) {
-        console.log(err)
-        return "error getTrackingService: " + err
+        console.error("error getTrackingService:", err);
+        return "error getTrackingService: " + err.message;
     }
 }
 
-export async function recordManualPaymentService(familyId, jenisIuran, amount, month, year, category, description, paymentDate) {
+/**
+ * Pencatatan Pembayaran Iuran Manual (Cash / Transfer langsung ke RT/Bendahara)
+ * - Jika jenis_iuran = "ipl": Menghubungkan ke tagihan aktif 'bills' & 'payments' (Mendukung Rapel via billIds)
+ * - Jika jenis_iuran = "kas": Mengarahkan ke modul 'kas_contributions'
+ * Keduanya otomatis berstatus 'approved', update status 'bills', dan mencatat ke 'financial_ledger'.
+ */
+export async function recordManualPaymentService({
+    familyId,
+    jenisIuran = "ipl",
+    amount,
+    billIds = [],
+    month,
+    year,
+    category = "sosial",
+    description,
+    paymentDate,
+    recordedBy = null
+}) {
     try {
-        const isIpl = (jenisIuran === "ipl" || jenisIuran === "kebersihan" || jenisIuran === "iuran_ipl")
+        const isIpl = (jenisIuran === "ipl" || jenisIuran === "kebersihan" || jenisIuran === "iuran_ipl");
+        
+        // Cari resident dari KK
+        const [wargaRows] = await pool.execute(
+            "SELECT id FROM warga WHERE family_id = ? ORDER BY id ASC LIMIT 1",
+            [familyId]
+        );
+        const residentId = wargaRows.length > 0 ? wargaRows[0].id : null;
+
         if (isIpl) {
-            const m = month || (new Date().getMonth() + 1)
-            const y = year || new Date().getFullYear()
-            const result = await createManualIplPayment(familyId, amount, m, y, paymentDate)
-            if (typeof result === "string" && result.startsWith("error")) return result
+            let targetBillIds = Array.isArray(billIds) ? billIds.filter(id => Boolean(id)) : [];
 
-            const desc = description || `Pembayaran Iuran IPL Manual KK ID ${familyId} (Bulan ${m}/${y})`
-            await insertLedger("in", amount, "ipl", desc)
-            return { message: "Pencatatan iuran IPL manual berhasil diselesaikan", payment_id: result.insertId }
+            // Jika billIds tidak disertakan, cari bill aktif berdasarkan month & year
+            if (targetBillIds.length === 0 && (month || year) && residentId) {
+                const targetMonth = Number(month || new Date().getMonth() + 1);
+                const targetYear = Number(year || new Date().getFullYear());
+
+                const [foundBills] = await pool.execute(`
+                    SELECT b.id, b.amount 
+                    FROM bills b
+                    JOIN bill_periods bp ON b.bill_period_id = bp.id
+                    WHERE (b.resident_id = ? OR b.resident_id IN (SELECT w.id FROM warga w WHERE w.family_id = ?))
+                      AND bp.period_month = ? AND bp.period_year = ?
+                    LIMIT 1
+                `, [residentId, familyId, targetMonth, targetYear]);
+
+                if (foundBills.length > 0) {
+                    targetBillIds = [foundBills[0].id];
+                }
+            }
+
+            if (targetBillIds.length === 0) {
+                return "error: Wajib menyertakan billIds tagihan yang ingin dibayar manual masbro!";
+            }
+
+            const paymentResult = await submitPaymentService({
+                billIds: targetBillIds,
+                residentId: residentId || 1,
+                amountStated: amount,
+                channel: "cash_to_bendahara",
+                proofUrl: "manual_cash_recorded",
+                recordedBy
+            });
+
+            if (paymentResult.error) {
+                return "error: " + paymentResult.error;
+            }
+
+            return {
+                message: "Pencatatan iuran IPL manual berhasil diselesaikan",
+                payment_id: paymentResult.payment_id,
+                bill_ids: paymentResult.bill_ids
+            };
         } else {
-            const cat = category || "kas_rt"
-            const desc = description || `Pembayaran Iuran Kas RT Manual KK ID ${familyId}`
-            const result = await createManualKasPayment(familyId, amount, cat, desc, paymentDate)
-            if (typeof result === "string" && result.startsWith("error")) return result
+            // Jalur Iuran Kas
+            if (!residentId) {
+                return "error: Data warga dalam Kartu Keluarga tersebut tidak ditemukan!";
+            }
 
-            await insertLedger("in", amount, "kas", desc)
-            return { message: "Pencatatan iuran Kas RT manual berhasil diselesaikan", payment_id: result.insertId }
+            const kasResult = await submitKasContributionService({
+                residentId,
+                amount,
+                category: category || "sosial",
+                description: description || `Pencatatan Kas RT Manual KK ID ${familyId}`,
+                channel: "cash_to_bendahara",
+                proofUrl: "manual_cash_recorded",
+                recordedBy
+            });
+
+            if (kasResult.error) {
+                return "error: " + kasResult.error;
+            }
+
+            return {
+                message: "Pencatatan iuran Kas RT manual berhasil diselesaikan",
+                contribution_id: kasResult.contribution_id
+            };
         }
     } catch (err) {
-        console.log(err)
-        return "error recordManualPaymentService: " + err
+        console.error("error recordManualPaymentService:", err);
+        return "error recordManualPaymentService: " + err.message;
     }
 }

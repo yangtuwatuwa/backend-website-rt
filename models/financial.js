@@ -1,184 +1,75 @@
-import db from "../config/sqlconfig.js"
+import db from "../config/sqlconfig.js";
 
-// === Settings ===
+// =========================================================================
+// ⚙️ PENGATURAN KEUANGAN (SETTINGS)
+// CATATAN: ipl_nominal di sini HANYA sebagai nilai default / template form
+// saat Bendahara membuat draft bill_period baru (defaultAmount).
+// Nilai ini TIDAK PERNAH dipakai untuk menghitung tagihan aktif warga secara langsung.
+// Begitu bill_period dibuat & dipublish, nominal di-snapshot ke tabel 'bills'.
+// =========================================================================
+
 export async function getFinancialSettings() {
-    const sqlcommand = "SELECT * FROM financial_settings WHERE id = 1"
+    const sqlcommand = "SELECT * FROM financial_settings WHERE id = 1";
     try {
-        const [result] = await db.execute(sqlcommand)
-        return result[0]
+        const [result] = await db.execute(sqlcommand);
+        return result[0];
     } catch (err) {
-        console.log("error getFinancialSettings:", err)
-        return "error karena: " + err
+        console.error("error getFinancialSettings:", err);
+        throw err;
     }
 }
 
 export async function updateFinancialSettings(iplNominal, previousBalance) {
-    const sqlcommand = "UPDATE financial_settings SET ipl_nominal = ?, previous_balance = ? WHERE id = 1"
+    const sqlcommand = "UPDATE financial_settings SET ipl_nominal = ?, previous_balance = ? WHERE id = 1";
     try {
-        const [result] = await db.execute(sqlcommand, [iplNominal, previousBalance])
-        return result
+        const [result] = await db.execute(sqlcommand, [iplNominal, previousBalance]);
+        return result;
     } catch (err) {
-        console.log("error updateFinancialSettings:", err)
-        return "error karena: " + err
+        console.error("error updateFinancialSettings:", err);
+        throw err;
     }
 }
 
-// === IPL Payments ===
-export async function createIplPayment(familyId, amount, month, year, paymentProof) {
-    const sqlcommand = "INSERT INTO ipl_payment (id, family_id, amount, month, year, status, payment_proof) VALUES (NULL, ?, ?, ?, ?, 'pending', ?)"
-    try {
-        const [result] = await db.execute(sqlcommand, [familyId, amount, month, year, paymentProof])
-        return result
-    } catch (err) {
-        console.log("error createIplPayment:", err)
-        return "error karena: " + err
-    }
-}
+// =========================================================================
+// 📖 BUKU KAS BESAR (FINANCIAL LEDGER)
+// =========================================================================
 
-export async function getIplPaymentById(id) {
-    const sqlcommand = "SELECT * FROM ipl_payment WHERE id = ?"
-    try {
-        const [result] = await db.execute(sqlcommand, [id])
-        return result[0]
-    } catch (err) {
-        console.log("error getIplPaymentById:", err)
-        return "error karena: " + err
-    }
-}
+/**
+ * Helper terpadu untuk mencatat transaksi masuk/keluar ke Buku Kas RT (financial_ledger).
+ * Dipakai bersama oleh: Approval IPL, Approval Kas, Manual Payment, Expense, dan Income.
+ */
+export async function writeLedgerEntry({ type = 'in', amount, sourceType, description, receiptFile = null, connection = null }) {
+    const client = connection || db;
+    const cleanAmount = Number(amount);
+    const cleanSourceType = String(sourceType || "lainnya").toLowerCase().trim();
+    const cleanDesc = description || "-";
 
-export async function getPendingIplPayments() {
-    const sqlcommand = `
-        SELECT ip.*, f.no_kk 
-        FROM ipl_payment ip 
-        LEFT JOIN family f ON ip.family_id = f.id 
-        WHERE ip.status = 'pending'
-    `
     try {
-        const [result] = await db.execute(sqlcommand)
-        return result
+        const sql = "INSERT INTO financial_ledger (id, type, amount, source_type, description, receipt_file) VALUES (NULL, ?, ?, ?, ?, ?)";
+        const [result] = await client.execute(sql, [type, cleanAmount, cleanSourceType, cleanDesc, receiptFile]);
+        return result;
     } catch (err) {
-        console.log("error getPendingIplPayments:", err)
-        return "error karena: " + err
-    }
-}
-
-export async function updateIplPaymentStatus(id, status) {
-    const sqlcommand = "UPDATE ipl_payment SET status = ? WHERE id = ?"
-    try {
-        const [result] = await db.execute(sqlcommand, [status, id])
-        return result
-    } catch (err) {
-        console.log("error updateIplPaymentStatus:", err)
-        return "error karena: " + err
-    }
-}
-
-export async function getFamilyIplHistory(familyId) {
-    const sqlcommand = "SELECT * FROM ipl_payment WHERE family_id = ? ORDER BY year DESC, month DESC"
-    try {
-        const [result] = await db.execute(sqlcommand, [familyId])
-        return result
-    } catch (err) {
-        console.log("error getFamilyIplHistory:", err)
-        return "error karena: " + err
-    }
-}
-
-// === Kas Payments ===
-export async function createKasPayment(familyId, amount, category, description, paymentProof) {
-    const sqlcommand = "INSERT INTO kas_payment (id, family_id, amount, category, description, status, payment_proof) VALUES (NULL, ?, ?, ?, ?, 'pending', ?)"
-    try {
-        const [result] = await db.execute(sqlcommand, [familyId, amount, category, description, paymentProof])
-        return result
-    } catch (err) {
-        console.log("error createKasPayment:", err)
-        return "error karena: " + err
-    }
-}
-
-export async function getKasPaymentById(id) {
-    const sqlcommand = "SELECT * FROM kas_payment WHERE id = ?"
-    try {
-        const [result] = await db.execute(sqlcommand, [id])
-        return result[0]
-    } catch (err) {
-        console.log("error getKasPaymentById:", err)
-        return "error karena: " + err
-    }
-}
-
-export async function getPendingKasPayments() {
-    const sqlcommand = `
-        SELECT kp.*, f.no_kk 
-        FROM kas_payment kp 
-        LEFT JOIN family f ON kp.family_id = f.id 
-        WHERE kp.status = 'pending'
-    `
-    try {
-        const [result] = await db.execute(sqlcommand)
-        return result
-    } catch (err) {
-        console.log("error getPendingKasPayments:", err)
-        return "error karena: " + err
-    }
-}
-
-export async function updateKasPaymentStatus(id, status) {
-    const sqlcommand = "UPDATE kas_payment SET status = ? WHERE id = ?"
-    try {
-        const [result] = await db.execute(sqlcommand, [status, id])
-        return result
-    } catch (err) {
-        console.log("error updateKasPaymentStatus:", err)
-        return "error karena: " + err
-    }
-}
-
-export async function getFamilyKasHistory(familyId) {
-    const sqlcommand = "SELECT * FROM kas_payment WHERE family_id = ? ORDER BY payment_date DESC"
-    try {
-        const [result] = await db.execute(sqlcommand, [familyId])
-        return result
-    } catch (err) {
-        console.log("error getFamilyKasHistory:", err)
-        return "error karena: " + err
-    }
-}
-
-// === Ledger ===
-export async function insertLedger(type, amount, sourceType, description, receiptFile = null) {
-    if (receiptFile) {
+        // Fallback jika kolom receipt_file belum ada
         try {
-            const [result] = await db.execute(
+            await client.execute("ALTER TABLE financial_ledger ADD COLUMN IF NOT EXISTS receipt_file VARCHAR(255)");
+            const [result] = await client.execute(
                 "INSERT INTO financial_ledger (id, type, amount, source_type, description, receipt_file) VALUES (NULL, ?, ?, ?, ?, ?)",
-                [type, amount, sourceType, description, receiptFile]
-            )
-            return result
-        } catch (err) {
-            try {
-                await db.execute("ALTER TABLE financial_ledger ADD COLUMN IF NOT EXISTS receipt_file VARCHAR(255)")
-                const [result] = await db.execute(
-                    "INSERT INTO financial_ledger (id, type, amount, source_type, description, receipt_file) VALUES (NULL, ?, ?, ?, ?, ?)",
-                    [type, amount, sourceType, description, receiptFile]
-                )
-                return result
-            } catch (alterErr) {
-                const [result] = await db.execute(
-                    "INSERT INTO financial_ledger (id, type, amount, source_type, description) VALUES (NULL, ?, ?, ?, ?)",
-                    [type, amount, sourceType, `[Receipt: ${receiptFile}] ${description}`]
-                )
-                return result
-            }
+                [type, cleanAmount, cleanSourceType, cleanDesc, receiptFile]
+            );
+            return result;
+        } catch (alterErr) {
+            const fallbackDesc = receiptFile ? `[Receipt: ${receiptFile}] ${cleanDesc}` : cleanDesc;
+            const [result] = await client.execute(
+                "INSERT INTO financial_ledger (id, type, amount, source_type, description) VALUES (NULL, ?, ?, ?, ?)",
+                [type, cleanAmount, cleanSourceType, fallbackDesc]
+            );
+            return result;
         }
     }
-    const sqlcommand = "INSERT INTO financial_ledger (id, type, amount, source_type, description) VALUES (NULL, ?, ?, ?, ?)"
-    try {
-        const [result] = await db.execute(sqlcommand, [type, amount, sourceType, description])
-        return result
-    } catch (err) {
-        console.log("error insertLedger:", err)
-        return "error karena: " + err
-    }
+}
+
+export async function insertLedger(type, amount, sourceType, description, receiptFile = null, connection = null) {
+    return writeLedgerEntry({ type, amount, sourceType, description, receiptFile, connection });
 }
 
 export async function getMonthlyFinancialSummary(year = new Date().getFullYear()) {
@@ -192,134 +83,92 @@ export async function getMonthlyFinancialSummary(year = new Date().getFullYear()
         WHERE YEAR(transaction_date) = ?
         GROUP BY YEAR(transaction_date), MONTH(transaction_date)
         ORDER BY month ASC
-    `
+    `;
     try {
-        const [result] = await db.execute(sqlcommand, [year])
-        return result
+        const [result] = await db.execute(sqlcommand, [year]);
+        return result;
     } catch (err) {
-        console.log("error getMonthlyFinancialSummary:", err)
-        return "error karena: " + err
+        console.error("error getMonthlyFinancialSummary:", err);
+        throw err;
     }
 }
 
 export async function getLedgerStats() {
-    const sqlIncome = "SELECT SUM(amount) AS total FROM financial_ledger WHERE type = 'in'"
-    const sqlExpense = "SELECT SUM(amount) AS total FROM financial_ledger WHERE type = 'out'"
+    const sqlIncome = "SELECT SUM(amount) AS total FROM financial_ledger WHERE type = 'in'";
+    const sqlExpense = "SELECT SUM(amount) AS total FROM financial_ledger WHERE type = 'out'";
     try {
-        const [incomeRes] = await db.execute(sqlIncome)
-        const [expenseRes] = await db.execute(sqlExpense)
+        const [incomeRes] = await db.execute(sqlIncome);
+        const [expenseRes] = await db.execute(sqlExpense);
         return {
             total_income: incomeRes[0].total || 0,
             total_expense: expenseRes[0].total || 0
-        }
+        };
     } catch (err) {
-        console.log("error getLedgerStats:", err)
-        return "error karena: " + err
+        console.error("error getLedgerStats:", err);
+        throw err;
     }
 }
 
 export async function getLedgerList() {
-    const sqlcommand = "SELECT * FROM financial_ledger ORDER BY transaction_date DESC"
+    const sqlcommand = "SELECT * FROM financial_ledger ORDER BY transaction_date DESC, id DESC";
     try {
-        const [result] = await db.execute(sqlcommand)
-        return result
+        const [result] = await db.execute(sqlcommand);
+        return result;
     } catch (err) {
-        console.log("error getLedgerList:", err)
-        return "error karena: " + err
+        console.error("error getLedgerList:", err);
+        throw err;
     }
 }
 
-// === Tracking / Arrears ===
+// =========================================================================
+// 📊 PELACAKAN TUNGGAKAN WARGA (ARREARS TRACKING)
+// Mengambil data tagihan aktif langsung dari tabel 'bills' join 'bill_periods'
+// =========================================================================
+
 export async function getArrearsTracking(month, year) {
+    const targetMonth = Number(month);
+    const targetYear = Number(year);
+
     const sqlcommand = `
         SELECT 
             f.id AS family_id, 
             f.no_kk, 
-            w.nama AS kepala_keluarga_nama,
-            (
-                SELECT status 
-                FROM ipl_payment 
-                WHERE family_id = f.id AND month = ? AND year = ? 
-                ORDER BY id DESC 
-                LIMIT 1
-            ) AS payment_status,
-            (
-                SELECT payment_date 
-                FROM ipl_payment 
-                WHERE family_id = f.id AND month = ? AND year = ? 
-                ORDER BY id DESC 
-                LIMIT 1
-            ) AS payment_date
+            COALESCE(w.nama, (SELECT w2.nama FROM warga w2 WHERE w2.family_id = f.id ORDER BY w2.id ASC LIMIT 1), 'Tanpa Nama') AS kepala_keluarga_nama,
+            b.id AS bill_id,
+            b.amount AS bill_amount,
+            b.due_date,
+            b.status AS bill_status,
+            bp.id AS bill_period_id,
+            bp.title AS period_title,
+            p.id AS payment_id,
+            p.status AS payment_status,
+            p.created_at AS payment_date,
+            p.channel AS payment_channel
         FROM family f
         LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
-    `
+        LEFT JOIN bill_periods bp ON bp.period_month = ? AND bp.period_year = ?
+        LEFT JOIN bills b ON b.bill_period_id = bp.id AND (
+            b.resident_id = f.kepala_keluarga_id 
+            OR b.resident_id = (SELECT w3.id FROM warga w3 WHERE w3.family_id = f.id ORDER BY w3.id ASC LIMIT 1)
+        )
+        LEFT JOIN (
+            SELECT pbl.bill_id, p1.id, p1.status, p1.channel, p1.created_at
+            FROM payment_bill_links pbl
+            JOIN payments p1 ON pbl.payment_id = p1.id
+            INNER JOIN (
+                SELECT pbl2.bill_id, MAX(p2.id) AS max_id
+                FROM payment_bill_links pbl2
+                JOIN payments p2 ON pbl2.payment_id = p2.id
+                GROUP BY pbl2.bill_id
+            ) latest ON pbl.bill_id = latest.bill_id AND p1.id = latest.max_id
+        ) p ON b.id = p.bill_id
+        ORDER BY f.id ASC
+    `;
     try {
-        const [result] = await db.execute(sqlcommand, [month, year, month, year])
-        return result
+        const [result] = await db.execute(sqlcommand, [targetMonth, targetYear]);
+        return result;
     } catch (err) {
-        console.log("error getArrearsTracking:", err)
-        return "error karena: " + err
+        console.error("error getArrearsTracking:", err);
+        throw err;
     }
 }
-
-export async function createManualIplPayment(familyId, amount, month, year, paymentDate) {
-    const sqlcommand = "INSERT INTO ipl_payment (id, family_id, amount, month, year, status, payment_proof, payment_date) VALUES (NULL, ?, ?, ?, ?, 'diterima', 'manual_cash', ?)"
-    try {
-        const dateValue = paymentDate || new Date()
-        const [result] = await db.execute(sqlcommand, [familyId, amount, month, year, dateValue])
-        return result
-    } catch (err) {
-        console.log("error createManualIplPayment:", err)
-        return "error karena: " + err
-    }
-}
-
-export async function createManualKasPayment(familyId, amount, category, description, paymentDate) {
-    const sqlcommand = "INSERT INTO kas_payment (id, family_id, amount, category, description, status, payment_proof, payment_date) VALUES (NULL, ?, ?, ?, ?, 'diterima', 'manual_cash', ?)"
-    try {
-        const dateValue = paymentDate || new Date()
-        const [result] = await db.execute(sqlcommand, [familyId, amount, category, description, dateValue])
-        return result
-    } catch (err) {
-        console.log("error createManualKasPayment:", err)
-        return "error karena: " + err
-    }
-}
-
-export async function generateBatchBillsModel(amount, startMonth, startYear, endMonth, endYear) {
-    try {
-        if (amount && Number(amount) > 0) {
-            await db.execute("UPDATE financial_settings SET ipl_nominal = ? WHERE id = 1", [amount])
-        }
-        const [familyRows] = await db.execute("SELECT COUNT(id) AS total FROM family")
-        const totalFamilies = Number(familyRows[0]?.total || 0)
-
-        const sM = Number(startMonth || 1)
-        const sY = Number(startYear || new Date().getFullYear())
-        const eM = Number(endMonth || 12)
-        const eY = Number(endYear || sY)
-
-        let totalMonths = 0
-        if (sY === eY) {
-            totalMonths = (eM - sM) + 1
-        } else {
-            totalMonths = ((eY - sY) * 12) + (eM - sM) + 1
-        }
-        if (totalMonths < 1) totalMonths = 12
-
-        return {
-            amount_per_month: Number(amount || 200000),
-            total_families: totalFamilies,
-            total_months: totalMonths,
-            total_bills_generated: totalFamilies * totalMonths,
-            start_month: sM,
-            start_year: sY,
-            end_month: eM,
-            end_year: eY
-        }
-    } catch (err) {
-        console.log("error generateBatchBillsModel:", err)
-        throw err
-    }
-}
-

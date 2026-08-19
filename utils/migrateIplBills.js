@@ -1,7 +1,7 @@
 import db from "../config/sqlconfig.js";
 
 /**
- * Inisialisasi dan migrasi tabel-tabel modul Penagihan IPL
+ * Inisialisasi dan migrasi tabel-tabel modul Penagihan IPL & Kas RT
  */
 export async function initIplBillingTables() {
     try {
@@ -49,13 +49,12 @@ export async function initIplBillingTables() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
-        // 3. Tabel payments
+        // 3. Tabel payments (Many-to-Many / Single & Rapel)
         await db.execute(`
             CREATE TABLE IF NOT EXISTS payments (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                bill_id INT NOT NULL,
                 resident_id INT NOT NULL,
-                amount_stated DECIMAL(12, 2) NOT NULL,
+                total_amount DECIMAL(12, 2) NOT NULL,
                 channel ENUM('transfer', 'cash_to_rt', 'cash_to_bendahara') NOT NULL,
                 proof_url VARCHAR(255) NULL,
                 status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
@@ -65,21 +64,213 @@ export async function initIplBillingTables() {
                 verified_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_payments_bill_id (bill_id),
                 INDEX idx_payments_resident_id (resident_id),
                 INDEX idx_payments_status (status),
                 INDEX idx_payments_created_at (created_at),
-                CONSTRAINT fk_payments_bill FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE RESTRICT,
                 CONSTRAINT fk_payments_resident FOREIGN KEY (resident_id) REFERENCES warga(id) ON DELETE RESTRICT,
                 CONSTRAINT fk_payments_recorded_by FOREIGN KEY (recorded_by) REFERENCES acount(id) ON DELETE SET NULL,
                 CONSTRAINT fk_payments_verified_by FOREIGN KEY (verified_by) REFERENCES acount(id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
-        console.log("✅ Tabel IPL Billing (bill_periods, bills, payments) berhasil diinisialisasi.");
+        // 4. Tabel penghubung payment_bill_links (Dukungan Rapel)
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS payment_bill_links (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                payment_id INT NOT NULL,
+                bill_id INT NOT NULL,
+                allocated_amount DECIMAL(12, 2) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_pbl_payment_id (payment_id),
+                INDEX idx_pbl_bill_id (bill_id),
+                CONSTRAINT fk_pbl_payment FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE,
+                CONSTRAINT fk_pbl_bill FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE RESTRICT
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        // 5. Tabel kas_contributions (Modul Uang Kas Insidental)
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS kas_contributions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                resident_id INT NOT NULL,
+                amount DECIMAL(12, 2) NOT NULL,
+                category ENUM('kematian', 'sosial', 'kegiatan', 'lainnya') NOT NULL,
+                description TEXT NULL,
+                channel ENUM('transfer', 'cash_to_rt', 'cash_to_bendahara') NOT NULL DEFAULT 'transfer',
+                proof_url VARCHAR(255) NULL,
+                status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+                reject_reason TEXT NULL,
+                recorded_by INT NULL,
+                verified_by INT NULL,
+                verified_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_kas_resident_id (resident_id),
+                INDEX idx_kas_status (status),
+                INDEX idx_kas_category (category),
+                INDEX idx_kas_created_at (created_at),
+                CONSTRAINT fk_kas_resident FOREIGN KEY (resident_id) REFERENCES warga(id) ON DELETE RESTRICT,
+                CONSTRAINT fk_kas_recorded_by FOREIGN KEY (recorded_by) REFERENCES acount(id) ON DELETE SET NULL,
+                CONSTRAINT fk_kas_verified_by FOREIGN KEY (verified_by) REFERENCES acount(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        // 6. Penyesuaian skema payments jika sebelumnya pernah dibuat dengan kolom 'bill_id' atau 'amount_stated'
+        try {
+            const [columns] = await db.execute("SHOW COLUMNS FROM payments LIKE 'bill_id'");
+            if (columns.length > 0) {
+                // Migrasi data link dari tabel payments lama ke payment_bill_links
+                await db.execute(`
+                    INSERT IGNORE INTO payment_bill_links (payment_id, bill_id, allocated_amount)
+                    SELECT id, bill_id, COALESCE(amount_stated, total_amount, 0)
+                    FROM payments
+                    WHERE bill_id IS NOT NULL;
+                `);
+
+                // Hapus foreign key bill_id jika ada
+                try {
+                    await db.execute("ALTER TABLE payments DROP FOREIGN KEY fk_payments_bill");
+                } catch (e) {
+                    // Ignore if fk not found
+                }
+                // Hapus kolom bill_id
+                try {
+                    await db.execute("ALTER TABLE payments DROP COLUMN bill_id");
+                } catch (e) {
+                    // Ignore
+                }
+            }
+
+            const [amountStatedCols] = await db.execute("SHOW COLUMNS FROM payments LIKE 'amount_stated'");
+            if (amountStatedCols.length > 0) {
+                const [totalAmountCols] = await db.execute("SHOW COLUMNS FROM payments LIKE 'total_amount'");
+                if (totalAmountCols.length === 0) {
+                    await db.execute("ALTER TABLE payments CHANGE COLUMN amount_stated total_amount DECIMAL(12, 2) NOT NULL");
+                } else {
+                    await db.execute("UPDATE payments SET total_amount = amount_stated WHERE total_amount IS NULL OR total_amount = 0");
+                    await db.execute("ALTER TABLE payments DROP COLUMN amount_stated");
+                }
+            }
+        } catch (schemaErr) {
+            console.log("ℹ️ Info pengecekan skema payments:", schemaErr.message);
+        }
+
+        // 7. Migrasi data historis dari ipl_payment (jika ada data lama di DB)
+        try {
+            const [iplTables] = await db.execute("SHOW TABLES LIKE 'ipl_payment'");
+            if (iplTables.length > 0) {
+                const [oldIplRows] = await db.execute("SELECT * FROM ipl_payment");
+                if (Array.isArray(oldIplRows) && oldIplRows.length > 0) {
+                    console.log(`⏳ Memigrasikan ${oldIplRows.length} data historis dari ipl_payment...`);
+                    for (const row of oldIplRows) {
+                        try {
+                            const month = Number(row.month || 1);
+                            const year = Number(row.year || new Date().getFullYear());
+                            const monthTitle = `IPL ${month}/${year}`;
+                            const dueDate = `${year}-${String(month).padStart(2, '0')}-10`;
+
+                            // 1. Pastikan bill_period ada
+                            let [periods] = await db.execute("SELECT id FROM bill_periods WHERE period_month = ? AND period_year = ? LIMIT 1", [month, year]);
+                            let periodId;
+                            if (periods.length > 0) {
+                                periodId = periods[0].id;
+                            } else {
+                                const [createP] = await db.execute(
+                                    "INSERT INTO bill_periods (title, default_amount, due_date, period_month, period_year, status) VALUES (?, ?, ?, ?, ?, 'published')",
+                                    [monthTitle, row.amount || 200000, dueDate, month, year]
+                                );
+                                periodId = createP.insertId;
+                            }
+
+                            // 2. Cari resident_id dari family_id
+                            const [wargaRows] = await db.execute("SELECT id FROM warga WHERE family_id = ? ORDER BY id ASC LIMIT 1", [row.family_id]);
+                            if (wargaRows.length > 0) {
+                                const residentId = wargaRows[0].id;
+                                const billStatus = row.status === 'diterima' ? 'paid' : (row.status === 'pending' ? 'waiting_verification' : 'unpaid');
+                                const paymentStatus = row.status === 'diterima' ? 'approved' : (row.status === 'ditolak' ? 'rejected' : 'pending');
+
+                                // 3. Pastikan bill ada
+                                let [bills] = await db.execute("SELECT id FROM bills WHERE bill_period_id = ? AND resident_id = ? LIMIT 1", [periodId, residentId]);
+                                let billId;
+                                if (bills.length > 0) {
+                                    billId = bills[0].id;
+                                    if (billStatus === 'paid') {
+                                        await db.execute("UPDATE bills SET status = 'paid' WHERE id = ?", [billId]);
+                                    }
+                                } else {
+                                    const [createB] = await db.execute(
+                                        "INSERT INTO bills (bill_period_id, resident_id, amount, due_date, status) VALUES (?, ?, ?, ?, ?)",
+                                        [periodId, residentId, row.amount || 200000, dueDate, billStatus]
+                                    );
+                                    billId = createB.insertId;
+                                }
+
+                                // 4. Buat payments & payment_bill_links
+                                const [payRes] = await db.execute(
+                                    `INSERT INTO payments (resident_id, total_amount, channel, proof_url, status, created_at)
+                                     VALUES (?, ?, 'transfer', ?, ?, ?)`,
+                                    [residentId, row.amount || 200000, row.payment_proof || 'migrated', paymentStatus, row.payment_date || new Date()]
+                                );
+                                const payId = payRes.insertId;
+
+                                await db.execute(
+                                    "INSERT INTO payment_bill_links (payment_id, bill_id, allocated_amount) VALUES (?, ?, ?)",
+                                    [payId, billId, row.amount || 200000]
+                                );
+                            }
+                        } catch (singleMigrateErr) {
+                            console.log("Warning migrasi row ipl_payment:", singleMigrateErr.message);
+                        }
+                    }
+                    console.log("✅ Data historis ipl_payment berhasil dimigrasikan.");
+                }
+
+                // Drop tabel ipl_payment setelah data termigrasi
+                await db.execute("DROP TABLE IF EXISTS ipl_payment");
+                console.log("🗑️ Tabel usang 'ipl_payment' berhasil di-drop.");
+            }
+        } catch (migErr) {
+            console.log("ℹ️ Info migrasi ipl_payment:", migErr.message);
+        }
+
+        // 8. Migrasi data historis dari kas_payment (jika ada data lama di DB)
+        try {
+            const [kasTables] = await db.execute("SHOW TABLES LIKE 'kas_payment'");
+            if (kasTables.length > 0) {
+                const [oldKasRows] = await db.execute("SELECT * FROM kas_payment");
+                if (Array.isArray(oldKasRows) && oldKasRows.length > 0) {
+                    console.log(`⏳ Memigrasikan ${oldKasRows.length} data historis dari kas_payment...`);
+                    for (const row of oldKasRows) {
+                        try {
+                            const [wargaRows] = await db.execute("SELECT id FROM warga WHERE family_id = ? ORDER BY id ASC LIMIT 1", [row.family_id]);
+                            const residentId = wargaRows.length > 0 ? wargaRows[0].id : 1;
+                            const status = row.status === 'diterima' ? 'approved' : (row.status === 'ditolak' ? 'rejected' : 'pending');
+                            const category = ['kematian', 'sosial', 'kegiatan', 'lainnya'].includes(row.category) ? row.category : 'lainnya';
+
+                            await db.execute(
+                                `INSERT INTO kas_contributions (resident_id, amount, category, description, channel, proof_url, status, created_at)
+                                 VALUES (?, ?, ?, ?, 'transfer', ?, ?, ?)`,
+                                [residentId, row.amount || 0, category, row.description || '-', row.payment_proof || 'migrated', status, row.payment_date || new Date()]
+                            );
+                        } catch (singleKasErr) {
+                            console.log("Warning migrasi row kas_payment:", singleKasErr.message);
+                        }
+                    }
+                    console.log("✅ Data historis kas_payment berhasil dimigrasikan.");
+                }
+
+                // Drop tabel kas_payment setelah data termigrasi
+                await db.execute("DROP TABLE IF EXISTS kas_payment");
+                console.log("🗑️ Tabel usang 'kas_payment' berhasil di-drop.");
+            }
+        } catch (migKasErr) {
+            console.log("ℹ️ Info migrasi kas_payment:", migKasErr.message);
+        }
+
+        console.log("✅ Tabel IPL Billing (bill_periods, bills, payments, payment_bill_links, kas_contributions) berhasil diinisialisasi.");
         return true;
     } catch (err) {
-        console.error("❌ Gagal migrasi tabel IPL Billing:", err.message);
+        console.error("❌ Gagal migrasi tabel IPL Billing & Kas:", err.message);
         throw err;
     }
 }
@@ -92,3 +283,4 @@ if (process.argv[1] && (process.argv[1].endsWith("migrateIplBills.js") || proces
         process.exit(1);
     });
 }
+

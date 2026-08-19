@@ -198,6 +198,31 @@ export async function getBillsByFamilyId(familyId, { status, year, month } = {})
 }
 
 /**
+ * Ambil daftar tagihan dengan Pessimistic Lock (FOR UPDATE) untuk banyak ID dalam transaksi
+ */
+export async function getBillsByIdsForUpdate(ids, connection) {
+    await ensureTables();
+    if (!Array.isArray(ids) || ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(", ");
+    const sql = `
+        SELECT b.*, w.family_id, f.no_kk, bp.title AS period_title, bp.period_month, bp.period_year
+        FROM bills b
+        JOIN warga w ON b.resident_id = w.id
+        LEFT JOIN family f ON w.family_id = f.id
+        JOIN bill_periods bp ON b.bill_period_id = bp.id
+        WHERE b.id IN (${placeholders})
+        FOR UPDATE
+    `;
+    try {
+        const [rows] = await connection.execute(sql, ids);
+        return rows;
+    } catch (err) {
+        console.error("error getBillsByIdsForUpdate:", err);
+        throw err;
+    }
+}
+
+/**
  * Ambil daftar tagihan dalam suatu periode tertentu (untuk dashboard Bendahara/RT)
  */
 export async function getBillsByPeriodId(billPeriodId, { status, limit = 100, offset = 0 } = {}) {
@@ -213,13 +238,15 @@ export async function getBillsByPeriodId(billPeriodId, { status, limit = 100, of
         LEFT JOIN family f ON w.family_id = f.id
         LEFT JOIN house h ON w.house_id = h.id
         LEFT JOIN (
-            SELECT p1.*
-            FROM payments p1
+            SELECT pbl.bill_id, p1.id, p1.status, p1.channel, p1.proof_url
+            FROM payment_bill_links pbl
+            JOIN payments p1 ON pbl.payment_id = p1.id
             INNER JOIN (
-                SELECT bill_id, MAX(id) AS max_id
-                FROM payments
-                GROUP BY bill_id
-            ) p2 ON p1.id = p2.max_id
+                SELECT pbl2.bill_id, MAX(p2.id) AS max_id
+                FROM payment_bill_links pbl2
+                JOIN payments p2 ON pbl2.payment_id = p2.id
+                GROUP BY pbl2.bill_id
+            ) latest ON pbl.bill_id = latest.bill_id AND p1.id = latest.max_id
         ) p ON b.id = p.bill_id
         WHERE b.bill_period_id = ?
     `;
@@ -258,6 +285,24 @@ export async function updateBillStatus(id, status, connection = null) {
         return result;
     } catch (err) {
         console.error("error updateBillStatus:", err);
+        throw err;
+    }
+}
+
+/**
+ * Batch update status tagihan untuk banyak ID
+ */
+export async function updateMultipleBillStatus(ids, status, connection = null) {
+    await ensureTables();
+    if (!Array.isArray(ids) || ids.length === 0) return { affectedRows: 0 };
+    const client = connection || db;
+    const placeholders = ids.map(() => "?").join(", ");
+    const sql = `UPDATE bills SET status = ? WHERE id IN (${placeholders})`;
+    try {
+        const [result] = await client.execute(sql, [status, ...ids]);
+        return result;
+    } catch (err) {
+        console.error("error updateMultipleBillStatus:", err);
         throw err;
     }
 }

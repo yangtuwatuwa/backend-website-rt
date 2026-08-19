@@ -9,26 +9,29 @@ import {
 import {
     createBatchBills,
     getBillById,
-    getBillByIdForUpdate,
+    getBillsByIdsForUpdate,
     getBillsByResident,
     getBillsByFamilyId,
     getBillsByPeriodId,
     updateBillStatus,
+    updateMultipleBillStatus,
     setBillExempt,
     getBillsSummaryByPeriodId,
     computeBillStatus
 } from "../models/billModel.js";
 import {
-    createPayment,
+    createPaymentWithLinks,
     getPaymentById,
     getPaymentByIdForUpdate,
+    getPaymentLinksByPaymentId,
     getPaymentsByBillId,
     getPendingPaymentsList,
     getPaymentAuditList,
     updatePaymentVerification,
+    isBillInPendingPayment,
     hasApprovedPayment
 } from "../models/paymentModel.js";
-import { insertLedger } from "../models/financial.js";
+import { writeLedgerEntry } from "../models/financial.js";
 import { getAccountById } from "../models/login.js";
 
 /**
@@ -137,8 +140,7 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
             return { error: "Periode tagihan ini sudah pernah dipublish sebelumnya!" };
         }
 
-        // 2. Ambil seluruh warga aktif
-        // Sesuai sistem RT: warga yang status datanya diterima dan hidup
+        // 2. Ambil seluruh warga aktif (warga yang berstatus data diterima dan hidup)
         const [activeResidents] = await connection.execute(`
             SELECT w.id AS resident_id, w.nama, w.family_id
             FROM warga w
@@ -186,113 +188,175 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
 }
 
 /**
- * 4. Submit Pembayaran (Warga atau Pengurus)
- * - Channel 'cash_to_bendahara': Langsung APPROVED & Bill PAID + Catat ke Buku Kas Ledger
- * - Channel 'transfer' atau 'cash_to_rt': Status PENDING & Bill WAITING_VERIFICATION
+ * 4. Submit Pembayaran IPL — Mendukung Single & Rapel (Banyak Bulan Sekaligus)
+ * - Menerima billIds (array ID tagihan)
+ * - Validasi kepemilikan tagihan (semua bill harus milik warga/keluarga yang sama)
+ * - Validasi kesesuaian total: SUM(bill.amount) === amountStated
+ * - Validasi tidak ada bill yang sudah 'paid', 'exempt', atau sedang 'pending' di payment lain
+ * - Channel 'cash_to_bendahara': Langsung APPROVED, Bills PAID, Tulis ke Buku Kas Ledger
+ * - Channel 'transfer' atau 'cash_to_rt': Status PENDING, Bills WAITING_VERIFICATION
  */
-export async function submitPaymentService({ billId, residentId, amountStated, channel, proofUrl = null, recordedBy = null }) {
+export async function submitPaymentService({
+    billIds,
+    billId, // Fallback jika single id dikirim
+    residentId,
+    amountStated,
+    channel,
+    proofUrl = null,
+    recordedBy = null
+}) {
+    // Normalisasi input billIds menjadi array number
+    let targetBillIds = [];
+    if (Array.isArray(billIds)) {
+        targetBillIds = billIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
+    } else if (typeof billIds === "string") {
+        try {
+            const parsed = JSON.parse(billIds);
+            if (Array.isArray(parsed)) {
+                targetBillIds = parsed.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
+            } else if (!isNaN(Number(parsed))) {
+                targetBillIds = [Number(parsed)];
+            }
+        } catch (e) {
+            // String biasa
+            const num = Number(billIds);
+            if (!isNaN(num) && num > 0) targetBillIds = [num];
+        }
+    } else if (billId && !isNaN(Number(billId))) {
+        targetBillIds = [Number(billId)];
+    }
+
+    if (targetBillIds.length === 0) {
+        return { error: "Daftar tagihan (billIds) wajib berupa array ID tagihan yang valid!" };
+    }
+
+    const validChannels = ['transfer', 'cash_to_rt', 'cash_to_bendahara'];
+    if (!validChannels.includes(channel)) {
+        return { error: "Metode pembayaran (channel) tidak valid! Pilihan: transfer, cash_to_rt, cash_to_bendahara" };
+    }
+
+    if (channel === 'transfer' && !proofUrl) {
+        return { error: "Bukti transfer (proofUrl/file) wajib diunggah untuk pembayaran transfer!" };
+    }
+
+    const totalAmount = parseFloat(amountStated);
+    if (isNaN(totalAmount) || totalAmount <= 0) {
+        return { error: "Nominal pembayaran (amountStated) harus berupa angka valid positif!" };
+    }
+
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
 
-        // 1. Lock dan cek bill
-        const bill = await getBillByIdForUpdate(billId, connection);
-        if (!bill) {
+        // 1. Lock dan ambil seluruh tagihan dengan Pessimistic Lock
+        const bills = await getBillsByIdsForUpdate(targetBillIds, connection);
+        if (bills.length !== targetBillIds.length) {
             await connection.rollback();
-            return { error: "Tagihan tidak ditemukan masbro!" };
+            return { error: "Satu atau lebih tagihan yang dipilih tidak ditemukan di database!" };
         }
 
-        if (bill.status === 'paid') {
-            await connection.rollback();
-            return { error: "Tagihan ini sudah lunas, tidak dapat menerima pembayaran baru!" };
-        }
-        if (bill.status === 'exempt') {
-            await connection.rollback();
-            return { error: "Tagihan ini telah dibebaskan (exempt), tidak perlu dibayar!" };
-        }
+        // 2. Validasi kepemilikan tagihan (semua tagihan harus milik KK / warga yang sama)
+        const primaryFamilyId = bills[0].family_id;
+        const primaryResidentId = bills[0].resident_id;
 
-        // Cek apakah sudah ada pembayaran yang sedang pending untuk tagihan ini
-        const [pendingPayments] = await connection.execute(
-            "SELECT id FROM payments WHERE bill_id = ? AND status = 'pending' LIMIT 1",
-            [billId]
-        );
-        if (pendingPayments.length > 0) {
-            await connection.rollback();
-            return { error: "Masih ada bukti pembayaran yang sedang menunggu verifikasi bendahara untuk tagihan ini!" };
-        }
+        for (const b of bills) {
+            if (primaryFamilyId && b.family_id && String(b.family_id) !== String(primaryFamilyId)) {
+                await connection.rollback();
+                return { error: "Seluruh tagihan yang dirapel harus milik keluarga / KK yang sama!" };
+            }
+            if (b.status === 'paid') {
+                await connection.rollback();
+                return { error: `Tagihan #${b.id} (${b.period_title || 'IPL'}) sudah lunas sebelumnya!` };
+            }
+            if (b.status === 'exempt') {
+                await connection.rollback();
+                return { error: `Tagihan #${b.id} (${b.period_title || 'IPL'}) telah dibebaskan (exempt)!` };
+            }
 
-        const validChannels = ['transfer', 'cash_to_rt', 'cash_to_bendahara'];
-        if (!validChannels.includes(channel)) {
-            await connection.rollback();
-            return { error: "Metode pembayaran (channel) tidak valid! Pilihan: transfer, cash_to_rt, cash_to_bendahara" };
-        }
-
-        if (channel === 'transfer' && !proofUrl) {
-            await connection.rollback();
-            return { error: "Bukti transfer (proofUrl/file) wajib diunggah untuk pembayaran transfer!" };
+            // Cek apakah tagihan ini sedang menunggu verifikasi pada payment pending lain
+            const isPending = await isBillInPendingPayment(b.id, connection);
+            if (isPending) {
+                await connection.rollback();
+                return { error: `Tagihan #${b.id} (${b.period_title || 'IPL'}) saat ini sedang dalam proses verifikasi pending!` };
+            }
         }
 
-        const amount = parseFloat(amountStated);
-        if (isNaN(amount) || amount <= 0) {
+        // 3. Validasi kesesuaian nominal: totalAmount harus persis = SUM(allocated_amount)
+        const expectedTotal = bills.reduce((sum, b) => sum + parseFloat(b.amount), 0);
+        if (Math.abs(totalAmount - expectedTotal) > 0.01) {
             await connection.rollback();
-            return { error: "Nominal pembayaran (amountStated) harus berupa angka valid positif!" };
+            return {
+                error: `Total nominal transfer (Rp ${totalAmount.toLocaleString('id-ID')}) tidak sesuai dengan total tagihan yang dipilih (Rp ${expectedTotal.toLocaleString('id-ID')})!`
+            };
         }
 
-        const targetResidentId = residentId || bill.resident_id;
+        const targetResidentId = residentId || primaryResidentId;
+        const billAllocations = bills.map(b => ({
+            billId: b.id,
+            allocatedAmount: parseFloat(b.amount)
+        }));
 
-        // 2. Alur berdasarkan channel
+        // 4. Proses berdasarkan channel pembayaran
         if (channel === 'cash_to_bendahara') {
             // Tunai langsung diterima bendahara -> otomatis approved & paid
             const now = new Date();
-            const payResult = await createPayment({
-                billId,
+            const payResult = await createPaymentWithLinks({
                 residentId: targetResidentId,
-                amountStated: amount,
+                totalAmount,
                 channel,
                 proofUrl: proofUrl || 'cash_in_hand',
                 status: 'approved',
                 recordedBy,
                 verifiedBy: recordedBy,
-                verifiedAt: now
+                verifiedAt: now,
+                billAllocations
             }, connection);
 
-            // Update status bill menjadi 'paid'
-            await updateBillStatus(billId, 'paid', connection);
+            // Update status seluruh bills menjadi 'paid'
+            await updateMultipleBillStatus(targetBillIds, 'paid', connection);
 
-            // Catat ke Buku Kas Ledger
-            const ledgerDesc = `Pembayaran IPL Tunai Bendahara (Tagihan #${billId}, Warga ID ${targetResidentId})`;
-            await connection.execute(
-                "INSERT INTO financial_ledger (id, type, amount, source_type, description) VALUES (NULL, 'in', ?, 'ipl', ?)",
-                [amount, ledgerDesc]
-            );
+            // Catat ke Buku Kas RT (financial_ledger)
+            const periodTitles = bills.map(b => b.period_title || `#${b.id}`).join(", ");
+            const ledgerDesc = `Pembayaran IPL Tunai Bendahara [${periodTitles}] (Warga ID ${targetResidentId})`;
+            await writeLedgerEntry({
+                type: 'in',
+                amount: totalAmount,
+                sourceType: 'ipl',
+                description: ledgerDesc,
+                connection
+            });
 
             await connection.commit();
 
             return {
-                message: "Pembayaran tunai berhasil dicatat dan diverifikasi (Lunas)",
+                message: `Pembayaran tunai ${targetBillIds.length} bulan berhasil dicatat dan diverifikasi (Lunas)`,
                 payment_id: payResult.insertId,
+                bill_ids: targetBillIds,
+                total_amount: totalAmount,
                 bill_status: "paid"
             };
         } else {
             // Transfer atau Cash via RT -> Masuk antrean pending verifikasi bendahara
-            const payResult = await createPayment({
-                billId,
+            const payResult = await createPaymentWithLinks({
                 residentId: targetResidentId,
-                amountStated: amount,
+                totalAmount,
                 channel,
                 proofUrl,
                 status: 'pending',
-                recordedBy
+                recordedBy,
+                billAllocations
             }, connection);
 
-            // Update status bill menjadi 'waiting_verification'
-            await updateBillStatus(billId, 'waiting_verification', connection);
+            // Update status seluruh bills menjadi 'waiting_verification'
+            await updateMultipleBillStatus(targetBillIds, 'waiting_verification', connection);
 
             await connection.commit();
 
             return {
-                message: "Bukti pembayaran berhasil dikirim, menunggu verifikasi Bendahara",
+                message: `Bukti pembayaran ${targetBillIds.length} bulan berhasil dikirim, menunggu verifikasi Bendahara`,
                 payment_id: payResult.insertId,
+                bill_ids: targetBillIds,
+                total_amount: totalAmount,
                 bill_status: "waiting_verification"
             };
         }
@@ -306,8 +370,12 @@ export async function submitPaymentService({ billId, residentId, amountStated, c
 }
 
 /**
- * 5. Verifikasi Pembayaran oleh Bendahara (Approve / Reject)
- * Dilindungi dengan Transaction + Pessimistic Lock (FOR UPDATE) untuk mencegah race condition.
+ * 5. Verifikasi Pembayaran IPL oleh Bendahara (Approve / Reject)
+ * - Menerima decision: 'approved' | 'rejected'
+ * - Dilindungi Transaction + Pessimistic Lock (FOR UPDATE)
+ * - Validasi saat Approve: loop semua payment_bill_links, cek allocated_amount == bill.amount.
+ *   Jika mismatch pada salah satu tagihan, SELURUH payment di-reject secara otomatis.
+ * - Saat Reject: seluruh bills yang terhubung otomatis dikembalikan ke status 'unpaid'.
  */
 export async function verifyPaymentService({ paymentId, decision, actorId, rejectReason = null }) {
     const validDecisions = ['approved', 'rejected'];
@@ -335,15 +403,60 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
             return { error: `Pembayaran ini sudah pernah diproses sebelumnya (Status: ${payment.status})!` };
         }
 
-        const billId = payment.bill_id;
+        // 2. Ambil seluruh link tagihan untuk payment ini
+        const links = await getPaymentLinksByPaymentId(paymentId, connection);
+        if (!links || links.length === 0) {
+            await connection.rollback();
+            return { error: "Pembayaran ini tidak memiliki tagihan yang terhubung!" };
+        }
+
+        const billIds = links.map(l => l.bill_id);
+        const lockedBills = await getBillsByIdsForUpdate(billIds, connection);
+        const billMap = new Map(lockedBills.map(b => [b.id, b]));
         const now = new Date();
 
         if (decision === 'approved') {
-            // Guard: Pastikan tidak ada payment approved lain untuk bill ini
-            const alreadyApproved = await hasApprovedPayment(billId, connection);
-            if (alreadyApproved) {
-                await connection.rollback();
-                return { error: "Tagihan ini sudah memiliki pembayaran yang disetujui (Approved)!" };
+            // Guard & Validasi Wajib:
+            // Loop semua payment_bill_links, untuk tiap bill cek allocated_amount == bill.amount
+            let hasMismatch = false;
+            for (const link of links) {
+                const targetBill = billMap.get(link.bill_id);
+                if (!targetBill) {
+                    hasMismatch = true;
+                    break;
+                }
+                if (Math.abs(parseFloat(link.allocated_amount) - parseFloat(targetBill.amount)) > 0.01) {
+                    hasMismatch = true;
+                    break;
+                }
+                if (targetBill.status === 'paid' || targetBill.status === 'exempt') {
+                    hasMismatch = true;
+                    break;
+                }
+            }
+
+            // Jika ada mismatch, tolak seluruh payment secara otomatis
+            if (hasMismatch) {
+                const autoRejectReason = "nominal tidak sesuai pada salah satu tagihan";
+                await updatePaymentVerification(paymentId, {
+                    status: 'rejected',
+                    rejectReason: autoRejectReason,
+                    verifiedBy: actorId,
+                    verifiedAt: now
+                }, connection);
+
+                // Kembalikan semua tagihan ke unpaid
+                await updateMultipleBillStatus(billIds, 'unpaid', connection);
+
+                await connection.commit();
+
+                return {
+                    message: "Pembayaran otomatis ditolak karena nominal tidak sesuai pada salah satu tagihan.",
+                    payment_id: paymentId,
+                    bill_ids: billIds,
+                    status: "rejected",
+                    reject_reason: autoRejectReason
+                };
             }
 
             // 1. Update status payment menjadi 'approved'
@@ -354,22 +467,26 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
                 verifiedAt: now
             }, connection);
 
-            // 2. Update status bill menjadi 'paid'
-            await updateBillStatus(billId, 'paid', connection);
+            // 2. Update seluruh bills terkait menjadi 'paid'
+            await updateMultipleBillStatus(billIds, 'paid', connection);
 
             // 3. Catat pemasukan ke Buku Kas RT (financial_ledger)
-            const ledgerDesc = `Pembayaran IPL Terverifikasi (Tagihan #${billId}, Warga ID ${payment.resident_id})`;
-            await connection.execute(
-                "INSERT INTO financial_ledger (id, type, amount, source_type, description) VALUES (NULL, 'in', ?, 'ipl', ?)",
-                [payment.amount_stated, ledgerDesc]
-            );
+            const periodTitles = links.map(l => l.period_title || `#${l.bill_id}`).join(", ");
+            const ledgerDesc = `Pembayaran IPL Terverifikasi [${periodTitles}] (Warga ID ${payment.resident_id})`;
+            await writeLedgerEntry({
+                type: 'in',
+                amount: payment.total_amount,
+                sourceType: 'ipl',
+                description: ledgerDesc,
+                connection
+            });
 
             await connection.commit();
 
             return {
-                message: "Pembayaran berhasil disetujui (Approved). Status tagihan kini LUNAS.",
+                message: `Pembayaran ${billIds.length} tagihan berhasil disetujui (Approved). Status tagihan kini LUNAS.`,
                 payment_id: paymentId,
-                bill_id: billId,
+                bill_ids: billIds,
                 status: "approved"
             };
         } else {
@@ -382,15 +499,15 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
                 verifiedAt: now
             }, connection);
 
-            // 2. Kembalikan status bill ke 'unpaid' agar warga bisa upload ulang
-            await updateBillStatus(billId, 'unpaid', connection);
+            // 2. Kembalikan seluruh bills terkait ke 'unpaid'
+            await updateMultipleBillStatus(billIds, 'unpaid', connection);
 
             await connection.commit();
 
             return {
-                message: "Pembayaran telah ditolak (Rejected). Status tagihan kembali UNPAID.",
+                message: "Pembayaran telah ditolak (Rejected). Status seluruh tagihan kembali UNPAID.",
                 payment_id: paymentId,
-                bill_id: billId,
+                bill_ids: billIds,
                 status: "rejected",
                 reject_reason: rejectReason.trim()
             };

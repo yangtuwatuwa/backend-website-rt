@@ -332,20 +332,49 @@ export async function getBillDetailController(req, res) {
 }
 
 /**
- * Warga Mengirim Bukti Pembayaran IPL (atau Staf Input Cash)
+ * Warga Mengirim Bukti Pembayaran IPL (Single / Rapel)
  * Akses: Warga, RT, Bendahara
  */
 export async function submitPaymentController(req, res) {
     const userId = req.user.id;
     const userRole = req.user.role;
-    const { billId, bill_id, amount, amountStated, amount_stated, channel } = req.body;
+    let { billIds, bill_ids, billId, bill_id, amount, amountStated, amount_stated, channel } = req.body;
 
-    const targetBillId = billId || bill_id;
+    // Parsing billIds jika dikirim sebagai stringified JSON array atau single ID
+    let parsedBillIds = [];
+    const rawBillIds = billIds || bill_ids || billId || bill_id;
+
+    if (Array.isArray(rawBillIds)) {
+        parsedBillIds = rawBillIds.map(Number).filter(n => !isNaN(n) && n > 0);
+    } else if (typeof rawBillIds === "string") {
+        try {
+            const parsed = JSON.parse(rawBillIds);
+            if (Array.isArray(parsed)) {
+                parsedBillIds = parsed.map(Number).filter(n => !isNaN(n) && n > 0);
+            } else if (!isNaN(Number(parsed))) {
+                parsedBillIds = [Number(parsed)];
+            }
+        } catch (e) {
+            // Coba split koma jika ada "1,2,3"
+            if (rawBillIds.includes(",")) {
+                parsedBillIds = rawBillIds.split(",").map(s => Number(s.trim())).filter(n => !isNaN(n) && n > 0);
+            } else if (!isNaN(Number(rawBillIds))) {
+                parsedBillIds = [Number(rawBillIds)];
+            }
+        }
+    } else if (typeof rawBillIds === "number" && rawBillIds > 0) {
+        parsedBillIds = [rawBillIds];
+    }
+
     const targetAmount = amountStated || amount_stated || amount;
-    const targetChannel = channel || (req.file ? "transfer" : "transfer");
+    const targetChannel = channel || "transfer";
 
-    if (!targetBillId) {
-        return res.status(400).json({ pesan: "ID Tagihan (billId) wajib disertakan masbro!" });
+    if (parsedBillIds.length === 0) {
+        return res.status(400).json({ pesan: "ID Tagihan (billIds) wajib disertakan dalam format array atau JSON array, contoh: [1, 2]!" });
+    }
+
+    if (!targetAmount || isNaN(Number(targetAmount)) || Number(targetAmount) <= 0) {
+        return res.status(400).json({ pesan: "Nominal pembayaran (amount) wajib berupa angka positif!" });
     }
 
     // Jika channel transfer tapi tidak ada file yang diunggah
@@ -353,25 +382,19 @@ export async function submitPaymentController(req, res) {
         return res.status(400).json({ pesan: "Berkas bukti transfer (file) wajib diunggah masbro!" });
     }
 
-    // Role check: hanya bendahara yang boleh submit langsung 'cash_to_bendahara'
+    // Role check: hanya bendahara/admin yang boleh submit langsung 'cash_to_bendahara'
     if (targetChannel === "cash_to_bendahara" && userRole !== "bendahara" && userRole !== "admin" && userRole !== "superadmin") {
         return res.status(403).json({ pesan: "Akses ditolak, hanya Bendahara yang dapat mencatat pembayaran tunai langsung di tempat!" });
     }
 
-    // Jika user adalah warga, pastikan tagihan adalah milik keluarganya (Family-Gate)
+    let targetResidentId = null;
+
+    // Jika user adalah warga, pastikan terikat KK
     if (userRole === "warga") {
         const userData = await getAccountById(userId);
         const familyId = userData && userData[0] ? userData[0].family_id : null;
         if (!familyId) {
             return res.status(400).json({ pesan: "Akun Anda belum terikat dengan Kartu Keluarga!" });
-        }
-
-        const billCheck = await getBillDetailWithAuthService(targetBillId, userId, userRole);
-        if (billCheck.unauthorized) {
-            return res.status(403).json({ pesan: billCheck.error });
-        }
-        if (billCheck.error) {
-            return res.status(404).json({ pesan: billCheck.error });
         }
     }
 
@@ -379,7 +402,8 @@ export async function submitPaymentController(req, res) {
 
     try {
         const result = await submitPaymentService({
-            billId: targetBillId,
+            billIds: parsedBillIds,
+            residentId: targetResidentId,
             amountStated: targetAmount,
             channel: targetChannel,
             proofUrl,

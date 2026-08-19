@@ -42,8 +42,8 @@ export async function getDashboardSummary() {
                 (SELECT COUNT(id) FROM agenda) AS total_agenda,
 
                 -- Pembayaran Pending
-                (SELECT COUNT(id) FROM ipl_payment WHERE status = 'pending') AS ipl_pending,
-                (SELECT COUNT(id) FROM kas_payment WHERE status = 'pending') AS kas_pending,
+                (SELECT COUNT(id) FROM payments WHERE status = 'pending') AS ipl_pending,
+                (SELECT COUNT(id) FROM kas_contributions WHERE status = 'pending') AS kas_pending,
 
                 -- Keuangan
                 (SELECT COALESCE(previous_balance, 0) FROM financial_settings WHERE id = 1) AS saldo_awal,
@@ -55,8 +55,8 @@ export async function getDashboardSummary() {
                 (SELECT COUNT(id) FROM surat_keluar) AS total_surat_keluar,
 
                 -- Kepatuhan IPL
-                (SELECT COUNT(DISTINCT family_id) FROM ipl_payment WHERE year = ? AND status = 'diterima') AS ipl_lunas_tahun_ini,
-                (SELECT COUNT(DISTINCT family_id) FROM ipl_payment WHERE year = ? AND month = ? AND status = 'diterima') AS ipl_lunas_bulan_ini
+                (SELECT COUNT(DISTINCT w.family_id) FROM bills b JOIN bill_periods bp ON b.bill_period_id = bp.id JOIN warga w ON b.resident_id = w.id WHERE bp.period_year = ? AND b.status = 'paid') AS ipl_lunas_tahun_ini,
+                (SELECT COUNT(DISTINCT w.family_id) FROM bills b JOIN bill_periods bp ON b.bill_period_id = bp.id JOIN warga w ON b.resident_id = w.id WHERE bp.period_year = ? AND bp.period_month = ? AND b.status = 'paid') AS ipl_lunas_bulan_ini
         `, [currentYear, currentYear, currentMonth])
 
         return rows[0]

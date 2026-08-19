@@ -6,8 +6,6 @@ import { reviewPengaduan, approvePengaduan, removePengaduanController } from "..
 import { reviewPengajuan, approvePengajuan, archivePengajuanController } from "../controllers/pengajuan.js"
 import { 
     getPendingPaymentsController, 
-    approveIplPaymentController, 
-    approveKasPaymentController, 
     recordExpenseController, 
     recordIncomeController,
     recordManualPaymentController,
@@ -15,9 +13,13 @@ import {
     getFinancialSettingsController,
     getArrearsTrackingController,
     getFinancialSummaryController,
-    generateBatchBillsController,
     getDashboardStatsController
 } from "../controllers/financeController.js"
+import {
+    verifyKasContributionController,
+    getPendingKasContributionsController,
+    getKasAuditController
+} from "../controllers/kasController.js"
 import { verifyInput, residentSchema, updateResidentSchema, announcementSchema, updateAnnouncementSchema } from "../middlewares/verivyGmail.js"
 import { createAnnouncementController, getAnnouncementsController, editAnnouncementController, removeAnnouncementController } from "../controllers/announcement.js"
 import { createAgendaController, getAgendasController, editAgendaController, removeAgendaController } from "../controllers/agenda.js"
@@ -141,21 +143,18 @@ import {
     getPaymentAuditController
 } from "../controllers/iplBillingController.js"
 
-// Route Keuangan Bendahara & RT
-app.get("/finance/pending", checkRoles('rt', 'bendahara'), getPendingPaymentsController)
-app.patch("/finance/approve-ipl/:id", checkRoles('rt', 'bendahara'), approveIplPaymentController)
-app.patch("/finance/approve-kas/:id", checkRoles('rt', 'bendahara'), approveKasPaymentController)
-app.post("/finance/expense", checkRoles('rt', 'bendahara'), uploadSensitifMiddleware, recordExpenseController)
-app.post("/finance/income", checkRoles('rt', 'bendahara'), recordIncomeController)
-app.post("/finance/manual-payment", checkRoles('rt', 'bendahara'), recordManualPaymentController)
-app.post("/finance/generate-bills", checkRoles('rt', 'bendahara'), generateBatchBillsController)
-app.patch("/finance/settings", checkRoles('rt', 'bendahara'), updateFinancialSettingsController)
-app.get("/finance/settings", checkRoles('rt', 'bendahara'), getFinancialSettingsController)
-app.get("/finance/tracking", checkRoles('rt', 'bendahara'), getArrearsTrackingController)
-app.get("/finance/summary", checkRoles('rt', 'bendahara'), getFinancialSummaryController)
-app.get("/finance/stats", checkRoles('rt', 'bendahara'), getDashboardStatsController)
-app.get("/finance/ledger", checkRoles('rt', 'bendahara'), getDashboardStatsController)
-app.get("/finance/transactions", checkRoles('rt', 'bendahara'), getDashboardStatsController)
+// Route Keuangan Umum Bendahara & RT
+app.get("/finance/pending", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), getPendingPaymentsController)
+app.post("/finance/expense", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), uploadSensitifMiddleware, recordExpenseController)
+app.post("/finance/income", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), recordIncomeController)
+app.post("/finance/manual-payment", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), recordManualPaymentController)
+app.patch("/finance/settings", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), updateFinancialSettingsController)
+app.get("/finance/settings", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), getFinancialSettingsController)
+app.get("/finance/tracking", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), getArrearsTrackingController)
+app.get("/finance/summary", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), getFinancialSummaryController)
+app.get("/finance/stats", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), getDashboardStatsController)
+app.get("/finance/ledger", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), getDashboardStatsController)
+app.get("/finance/transactions", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), getDashboardStatsController)
 
 // Route Modul Penagihan IPL (Bill Periods, Snapshot Bills, Verifikasi & Rekap)
 app.post("/finance/bill-periods", checkRoles('bendahara', 'superadmin', 'admin'), createBillPeriodController)
@@ -168,6 +167,11 @@ app.patch("/finance/bills/:id/exempt", checkRoles('rt', 'bendahara', 'superadmin
 app.get("/finance/ipl-payments/pending", checkRoles('bendahara', 'rt', 'superadmin', 'admin'), getPendingIplBillPaymentsController)
 app.patch("/finance/ipl-payments/:id/verify", checkRoles('bendahara', 'superadmin', 'admin'), verifyIplBillPaymentController)
 app.get("/finance/ipl-payments/audit", checkRoles('rt', 'bendahara', 'sekretaris', 'superadmin', 'admin'), getPaymentAuditController)
+
+// Route Modul Iuran Kas RT (Verifikasi & Audit)
+app.get("/finance/kas-contributions/pending", checkRoles('bendahara', 'rt', 'superadmin', 'admin'), getPendingKasContributionsController)
+app.patch("/finance/kas-contributions/:id/verify", checkRoles('bendahara', 'superadmin', 'admin'), verifyKasContributionController)
+app.get("/finance/kas-contributions/audit", checkRoles('rt', 'bendahara', 'sekretaris', 'superadmin', 'admin'), getKasAuditController)
 
 
 // Route Kelola Petugas Voting (Karyawan)
