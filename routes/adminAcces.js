@@ -1,5 +1,5 @@
 import e from "express";
-import { warga, inputData, getResident, editedResident, inputHouse, getHouse, getWarga, revealWarga, revealFamily, searchResidentController, getPopulationStatsController, deleteWargaController } from "../controllers/residentController.js"
+import { warga, inputData, getResident, editedResident, inputHouse, getHouse, getWarga, revealWarga, revealFamily, searchResidentController, getPopulationStatsController, deleteWargaController, editNikWargaController, editNoKkController, getKepalaKeluargaController } from "../controllers/residentController.js"
 import { createWargaAccountController, createStaffAccountController, bindAccountToFamilyController, checkAccountStatusController, getAccessLogsController } from "../controllers/accountController.js"
 import { getPendingWargaController, verifyWargaController } from "../controllers/verificationController.js"
 import { reviewPengaduan, approvePengaduan, removePengaduanController } from "../controllers/pengaduan.js"
@@ -15,7 +15,8 @@ import {
     getFinancialSettingsController,
     getArrearsTrackingController,
     getFinancialSummaryController,
-    generateBatchBillsController
+    generateBatchBillsController,
+    getDashboardStatsController
 } from "../controllers/financeController.js"
 import { verifyInput, residentSchema, updateResidentSchema, announcementSchema, updateAnnouncementSchema } from "../middlewares/verivyGmail.js"
 import { createAnnouncementController, getAnnouncementsController, editAnnouncementController, removeAnnouncementController } from "../controllers/announcement.js"
@@ -46,6 +47,10 @@ app.get("/resident", checkRoles('rt', "sekretaris"), getResident)
 app.get("/resident/search", checkRoles('rt', 'sekretaris'), searchResidentController)
 app.get("/house", checkRoles('rt'), getHouse)
 app.get("/datawarga", checkRoles('rt', 'sekretaris'), getWarga)
+app.get("/kepala-keluarga", checkRoles('rt', 'sekretaris', 'bendahara'), getKepalaKeluargaController)
+app.get("/kepala-keluarga/list", checkRoles('rt', 'sekretaris', 'bendahara'), getKepalaKeluargaController)
+app.get("/family/heads", checkRoles('rt', 'sekretaris', 'bendahara'), getKepalaKeluargaController)
+app.get("/resident/heads", checkRoles('rt', 'sekretaris', 'bendahara'), getKepalaKeluargaController)
 
 import { updateAccountByAdminController } from "../controllers/accountProfileController.js"
 
@@ -119,7 +124,22 @@ app.post("/house", checkRoles('rt', 'sekretaris'), inputHouse )
 app.post("/datawarga", checkRoles('rt', 'sekretaris'), warga)
 app.delete("/datawarga/:id", checkRoles('rt', 'sekretaris'), deleteWargaController)
 app.patch("/resident/:id", verifyInput(updateResidentSchema), checkRoles('rt', 'sekretaris'), editedResident)
+app.patch("/datawarga/nik/:id", checkRoles('rt', 'sekretaris'), editNikWargaController)
+app.patch("/resident/nokk/:id", checkRoles('rt', 'sekretaris'), editNoKkController)
 
+
+import {
+    createBillPeriodController,
+    getAllBillPeriodsController,
+    getBillPeriodDetailController,
+    publishBillPeriodController,
+    getPeriodSummaryController,
+    getPeriodBillsController,
+    setExemptController,
+    getPendingPaymentsController as getPendingIplBillPaymentsController,
+    verifyPaymentController as verifyIplBillPaymentController,
+    getPaymentAuditController
+} from "../controllers/iplBillingController.js"
 
 // Route Keuangan Bendahara & RT
 app.get("/finance/pending", checkRoles('rt', 'bendahara'), getPendingPaymentsController)
@@ -133,6 +153,21 @@ app.patch("/finance/settings", checkRoles('rt', 'bendahara'), updateFinancialSet
 app.get("/finance/settings", checkRoles('rt', 'bendahara'), getFinancialSettingsController)
 app.get("/finance/tracking", checkRoles('rt', 'bendahara'), getArrearsTrackingController)
 app.get("/finance/summary", checkRoles('rt', 'bendahara'), getFinancialSummaryController)
+app.get("/finance/stats", checkRoles('rt', 'bendahara'), getDashboardStatsController)
+app.get("/finance/ledger", checkRoles('rt', 'bendahara'), getDashboardStatsController)
+app.get("/finance/transactions", checkRoles('rt', 'bendahara'), getDashboardStatsController)
+
+// Route Modul Penagihan IPL (Bill Periods, Snapshot Bills, Verifikasi & Rekap)
+app.post("/finance/bill-periods", checkRoles('bendahara', 'superadmin', 'admin'), createBillPeriodController)
+app.get("/finance/bill-periods", checkRoles('bendahara', 'rt', 'sekretaris', 'superadmin', 'admin'), getAllBillPeriodsController)
+app.get("/finance/bill-periods/:id", checkRoles('bendahara', 'rt', 'sekretaris', 'superadmin', 'admin'), getBillPeriodDetailController)
+app.post("/finance/bill-periods/:id/publish", checkRoles('bendahara', 'superadmin', 'admin'), publishBillPeriodController)
+app.get("/finance/bill-periods/:id/summary", checkRoles('bendahara', 'rt', 'sekretaris', 'superadmin', 'admin'), getPeriodSummaryController)
+app.get("/finance/bill-periods/:id/bills", checkRoles('bendahara', 'rt', 'sekretaris', 'superadmin', 'admin'), getPeriodBillsController)
+app.patch("/finance/bills/:id/exempt", checkRoles('rt', 'bendahara', 'superadmin', 'admin'), setExemptController)
+app.get("/finance/ipl-payments/pending", checkRoles('bendahara', 'rt', 'superadmin', 'admin'), getPendingIplBillPaymentsController)
+app.patch("/finance/ipl-payments/:id/verify", checkRoles('bendahara', 'superadmin', 'admin'), verifyIplBillPaymentController)
+app.get("/finance/ipl-payments/audit", checkRoles('rt', 'bendahara', 'sekretaris', 'superadmin', 'admin'), getPaymentAuditController)
 
 
 // Route Kelola Petugas Voting (Karyawan)

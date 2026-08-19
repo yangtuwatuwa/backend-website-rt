@@ -241,4 +241,39 @@ export async function updateFamilyHead(familyId, newHeadWargaId) {
         throw err
     }
 }
+
+/**
+ * Update NIK warga di tabel warga.
+ * @param {number} wargaId - ID warga yang NIK-nya akan diubah
+ * @param {string} encryptedNik - NIK baru (sudah terenkripsi)
+ * @returns {Object} result dari query UPDATE
+ */
+export async function updateWargaNik(wargaId, encryptedNik) {
+    const sqlcommand = "UPDATE warga SET nik = ? WHERE id = ?"
+    try {
+        const [result] = await db.execute(sqlcommand, [encryptedNik, wargaId])
+        return result
+    } catch (err) {
+        console.log("error updateWargaNik:", err)
+        return "error karena: " + err
+    }
+}
+
+/**
+ * Update No KK (no_kk) di tabel family.
+ * @param {number} familyId - ID family yang no_kk-nya akan diubah
+ * @param {string} encryptedNoKk - No KK baru (sudah terenkripsi)
+ * @returns {Object} result dari query UPDATE
+ */
+export async function updateFamilyNoKk(familyId, encryptedNoKk) {
+    const sqlcommand = "UPDATE family SET no_kk = ? WHERE id = ?"
+    try {
+        const [result] = await db.execute(sqlcommand, [encryptedNoKk, familyId])
+        return result
+    } catch (err) {
+        console.log("error updateFamilyNoKk:", err)
+        return "error karena: " + err
+    }
+}
+
 

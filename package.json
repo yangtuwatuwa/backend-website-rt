@@ -7,8 +7,9 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "reset-db": "node utils/resetDb.js"
+    "test": "node test/iplBilling.test.js",
+    "reset-db": "node utils/resetDb.js",
+    "migrate-ipl": "node utils/migrateIplBills.js"
   },
   "dependencies": {
     "@prisma/client": "^7.8.0",

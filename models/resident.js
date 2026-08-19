@@ -302,3 +302,24 @@ export async function getPopulationStats() {
     }
 }
 
+export async function getKepalaKeluargaList() {
+    await autoHealFamilyHeads();
+    const sqlcommand = `
+        SELECT 
+            f.id AS id,
+            f.id AS family_id,
+            w.id AS warga_id,
+            COALESCE(w.nama, (SELECT w2.nama FROM warga w2 WHERE w2.family_id = f.id ORDER BY w2.id ASC LIMIT 1), 'Tanpa Nama') AS nama
+        FROM family f
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
+        ORDER BY nama ASC
+    `;
+    try {
+        const [result] = await db.execute(sqlcommand);
+        return result;
+    } catch (err) {
+        console.log("error getKepalaKeluargaList:", err);
+        return "error karena: " + err;
+    }
+}
+

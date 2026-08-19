@@ -1,0 +1,322 @@
+import db from "../config/sqlconfig.js";
+import { initIplBillingTables } from "../utils/migrateIplBills.js";
+
+let tablesInitialized = false;
+async function ensureTables() {
+    if (!tablesInitialized) {
+        try {
+            await initIplBillingTables();
+            tablesInitialized = true;
+        } catch (e) {
+            console.error("Auto-init bill tables error:", e.message);
+        }
+    }
+}
+
+/**
+ * Accessor / Helper untuk menghitung status tagihan secara dinamis.
+ * Sesuai Constraint D: status OVERDUE dihitung dinamis jika (due_date < NOW() AND status = 'unpaid')
+ */
+export function computeBillStatus(bill) {
+    if (!bill) return bill;
+    const now = new Date();
+    const dueDate = new Date(bill.due_date);
+    
+    // Bandingkan tanggal jatuh tempo dengan hari ini (tanpa jam agar adil)
+    const isPastDue = dueDate < now;
+    const isOverdue = bill.status === 'unpaid' && isPastDue;
+    
+    return {
+        ...bill,
+        is_overdue: isOverdue,
+        display_status: isOverdue ? 'overdue' : bill.status
+    };
+}
+
+/**
+ * Batch insert tagihan warga saat periode di-publish.
+ * Menggunakan INSERT IGNORE / ON DUPLICATE KEY untuk menjamin idempotensi.
+ */
+export async function createBatchBills(billsData, connection = null) {
+    await ensureTables();
+    if (!Array.isArray(billsData) || billsData.length === 0) return { affectedRows: 0 };
+    const client = connection || db;
+
+    const values = [];
+    const placeholders = billsData.map(b => {
+        values.push(b.bill_period_id, b.resident_id, b.amount, b.due_date, b.status || 'unpaid');
+        return "(?, ?, ?, ?, ?)";
+    }).join(", ");
+
+    const sql = `
+        INSERT IGNORE INTO bills (bill_period_id, resident_id, amount, due_date, status)
+        VALUES ${placeholders}
+    `;
+
+    try {
+        const [result] = await client.execute(sql, values);
+        return result;
+    } catch (err) {
+        console.error("error createBatchBills:", err);
+        throw err;
+    }
+}
+
+/**
+ * Ambil detail tagihan berdasarkan ID
+ */
+export async function getBillById(id, connection = null) {
+    await ensureTables();
+    const client = connection || db;
+    const sql = `
+        SELECT b.*,
+               bp.title AS period_title, bp.period_month, bp.period_year,
+               w.nama AS resident_name, w.nik AS resident_nik, w.family_id,
+               f.no_kk,
+               h.blok AS house_blok, h.nomor AS house_nomor,
+               a.username AS exempt_by_username
+        FROM bills b
+        JOIN bill_periods bp ON b.bill_period_id = bp.id
+        JOIN warga w ON b.resident_id = w.id
+        LEFT JOIN family f ON w.family_id = f.id
+        LEFT JOIN house h ON w.house_id = h.id
+        LEFT JOIN acount a ON b.exempt_by = a.id
+        WHERE b.id = ?
+    `;
+    try {
+        const [rows] = await client.execute(sql, [id]);
+        if (rows.length === 0) return null;
+        return computeBillStatus(rows[0]);
+    } catch (err) {
+        console.error("error getBillById:", err);
+        throw err;
+    }
+}
+
+/**
+ * Ambil detail tagihan dengan Pessimistic Lock (FOR UPDATE) dalam transaksi
+ */
+export async function getBillByIdForUpdate(id, connection) {
+    await ensureTables();
+    const sql = "SELECT * FROM bills WHERE id = ? FOR UPDATE";
+    try {
+        const [rows] = await connection.execute(sql, [id]);
+        return rows[0] || null;
+    } catch (err) {
+        console.error("error getBillByIdForUpdate:", err);
+        throw err;
+    }
+}
+
+/**
+ * Ambil daftar tagihan milik seorang warga (resident_id)
+ */
+export async function getBillsByResident(residentId, { status, year, month } = {}) {
+    await ensureTables();
+    let sql = `
+        SELECT b.*,
+               bp.title AS period_title, bp.period_month, bp.period_year,
+               w.nama AS resident_name, w.family_id
+        FROM bills b
+        JOIN bill_periods bp ON b.bill_period_id = bp.id
+        JOIN warga w ON b.resident_id = w.id
+        WHERE b.resident_id = ?
+    `;
+    const params = [residentId];
+
+    if (status) {
+        if (status === 'overdue') {
+            sql += " AND b.status = 'unpaid' AND b.due_date < CURDATE()";
+        } else {
+            sql += " AND b.status = ?";
+            params.push(status);
+        }
+    }
+    if (year) {
+        sql += " AND bp.period_year = ?";
+        params.push(year);
+    }
+    if (month) {
+        sql += " AND bp.period_month = ?";
+        params.push(month);
+    }
+
+    sql += " ORDER BY bp.period_year DESC, bp.period_month DESC, b.id DESC";
+
+    try {
+        const [rows] = await db.execute(sql, params);
+        return rows.map(computeBillStatus);
+    } catch (err) {
+        console.error("error getBillsByResident:", err);
+        throw err;
+    }
+}
+
+/**
+ * Ambil daftar tagihan untuk seluruh anggota dalam satu KK (family_id)
+ */
+export async function getBillsByFamilyId(familyId, { status, year, month } = {}) {
+    await ensureTables();
+    let sql = `
+        SELECT b.*,
+               bp.title AS period_title, bp.period_month, bp.period_year,
+               w.nama AS resident_name, w.family_id, f.no_kk
+        FROM bills b
+        JOIN bill_periods bp ON b.bill_period_id = bp.id
+        JOIN warga w ON b.resident_id = w.id
+        JOIN family f ON w.family_id = f.id
+        WHERE w.family_id = ?
+    `;
+    const params = [familyId];
+
+    if (status) {
+        if (status === 'overdue') {
+            sql += " AND b.status = 'unpaid' AND b.due_date < CURDATE()";
+        } else {
+            sql += " AND b.status = ?";
+            params.push(status);
+        }
+    }
+    if (year) {
+        sql += " AND bp.period_year = ?";
+        params.push(year);
+    }
+    if (month) {
+        sql += " AND bp.period_month = ?";
+        params.push(month);
+    }
+
+    sql += " ORDER BY bp.period_year DESC, bp.period_month DESC, b.id DESC";
+
+    try {
+        const [rows] = await db.execute(sql, params);
+        return rows.map(computeBillStatus);
+    } catch (err) {
+        console.error("error getBillsByFamilyId:", err);
+        throw err;
+    }
+}
+
+/**
+ * Ambil daftar tagihan dalam suatu periode tertentu (untuk dashboard Bendahara/RT)
+ */
+export async function getBillsByPeriodId(billPeriodId, { status, limit = 100, offset = 0 } = {}) {
+    await ensureTables();
+    let sql = `
+        SELECT b.*,
+               w.nama AS resident_name, w.nik AS resident_nik, w.family_id,
+               f.no_kk,
+               h.blok AS house_blok, h.nomor AS house_nomor,
+               p.id AS latest_payment_id, p.status AS payment_status, p.channel AS payment_channel, p.proof_url
+        FROM bills b
+        JOIN warga w ON b.resident_id = w.id
+        LEFT JOIN family f ON w.family_id = f.id
+        LEFT JOIN house h ON w.house_id = h.id
+        LEFT JOIN (
+            SELECT p1.*
+            FROM payments p1
+            INNER JOIN (
+                SELECT bill_id, MAX(id) AS max_id
+                FROM payments
+                GROUP BY bill_id
+            ) p2 ON p1.id = p2.max_id
+        ) p ON b.id = p.bill_id
+        WHERE b.bill_period_id = ?
+    `;
+    const params = [billPeriodId];
+
+    if (status) {
+        if (status === 'overdue') {
+            sql += " AND b.status = 'unpaid' AND b.due_date < CURDATE()";
+        } else {
+            sql += " AND b.status = ?";
+            params.push(status);
+        }
+    }
+
+    sql += " ORDER BY b.id ASC LIMIT ? OFFSET ?";
+    params.push(String(limit), String(offset));
+
+    try {
+        const [rows] = await db.execute(sql, params);
+        return rows.map(computeBillStatus);
+    } catch (err) {
+        console.error("error getBillsByPeriodId:", err);
+        throw err;
+    }
+}
+
+/**
+ * Update status tagihan (misal: 'unpaid' -> 'waiting_verification' -> 'paid')
+ */
+export async function updateBillStatus(id, status, connection = null) {
+    await ensureTables();
+    const client = connection || db;
+    const sql = "UPDATE bills SET status = ? WHERE id = ?";
+    try {
+        const [result] = await client.execute(sql, [status, id]);
+        return result;
+    } catch (err) {
+        console.error("error updateBillStatus:", err);
+        throw err;
+    }
+}
+
+/**
+ * Set status tagihan menjadi 'exempt' (dibebaskan)
+ */
+export async function setBillExempt(id, reason, actorId, connection = null) {
+    await ensureTables();
+    const client = connection || db;
+    const sql = `
+        UPDATE bills 
+        SET status = 'exempt', exempt_reason = ?, exempt_by = ?, exempt_at = NOW() 
+        WHERE id = ?
+    `;
+    try {
+        const [result] = await client.execute(sql, [reason || "Dibebaskan oleh pengurus", actorId || null, id]);
+        return result;
+    } catch (err) {
+        console.error("error setBillExempt:", err);
+        throw err;
+    }
+}
+
+/**
+ * Ambil ringkasan rekapitulasi tagihan per periode
+ */
+export async function getBillsSummaryByPeriodId(billPeriodId) {
+    await ensureTables();
+    const sql = `
+        SELECT 
+            COUNT(id) AS total_bills,
+            SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS count_paid,
+            SUM(CASE WHEN status = 'waiting_verification' THEN 1 ELSE 0 END) AS count_waiting_verification,
+            SUM(CASE WHEN status = 'unpaid' AND due_date >= CURDATE() THEN 1 ELSE 0 END) AS count_unpaid,
+            SUM(CASE WHEN status = 'unpaid' AND due_date < CURDATE() THEN 1 ELSE 0 END) AS count_overdue,
+            SUM(CASE WHEN status = 'exempt' THEN 1 ELSE 0 END) AS count_exempt,
+            COALESCE(SUM(amount), 0) AS total_billed,
+            COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS total_collected,
+            COALESCE(SUM(CASE WHEN status = 'unpaid' OR status = 'waiting_verification' THEN amount ELSE 0 END), 0) AS total_uncollected
+        FROM bills
+        WHERE bill_period_id = ?
+    `;
+    try {
+        const [rows] = await db.execute(sql, [billPeriodId]);
+        const summary = rows[0] || {};
+        return {
+            total_bills: Number(summary.total_bills || 0),
+            count_paid: Number(summary.count_paid || 0),
+            count_waiting_verification: Number(summary.count_waiting_verification || 0),
+            count_unpaid: Number(summary.count_unpaid || 0),
+            count_overdue: Number(summary.count_overdue || 0),
+            count_exempt: Number(summary.count_exempt || 0),
+            total_billed: Number(summary.total_billed || 0),
+            total_collected: Number(summary.total_collected || 0),
+            total_uncollected: Number(summary.total_uncollected || 0)
+        };
+    } catch (err) {
+        console.error("error getBillsSummaryByPeriodId:", err);
+        throw err;
+    }
+}

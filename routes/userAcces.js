@@ -5,7 +5,7 @@ import { addPengaduan, checkStatusPengaduan } from "../controllers/pengaduan.js"
 import { addPengajuan, checkStatusPengajuan } from "../controllers/pengajuan.js"
 import { getAnnouncementsController } from "../controllers/announcement.js"
 import { getAgendasController } from "../controllers/agenda.js"
-import { createWargaByResident, updateWargaDetailsController } from "../controllers/residentController.js"
+import { createWargaByResident, updateWargaDetailsController, getKepalaKeluargaController } from "../controllers/residentController.js"
 import { uploadSensitifDataController, downloadSensitifFileController, deleteSensitifDataController } from "../controllers/documentController.js"
 import { uploadSensitifMiddleware } from "../middlewares/multerConfig.js"
 
@@ -15,6 +15,7 @@ const router = express.Router()
 
 
 router.get("/getmyfamily/:id", jwtAuth, family)
+router.get("/kepala-keluarga", jwtAuth, getKepalaKeluargaController)
 router.patch("/password", jwtAuth, changePasswordController)
 
 // Route Profil / Akun Mandiri User (Lihat & Edit Username, Email, Password)
@@ -55,12 +56,18 @@ router.get("/agenda", jwtAuth, getAgendasController)
 import { payIplController, payKasController, getFamilyPaymentsController } from "../controllers/financeController.js"
 import { idempotencyMiddleware } from "../middlewares/idempotency.js"
 import { createPaymentSessionController, checkPaymentStatusController } from "../controllers/paymentGatewayController.js"
+import { getMyBillsController, getBillDetailController, submitPaymentController } from "../controllers/iplBillingController.js"
 
 router.post("/pay-ipl", jwtAuth, idempotencyMiddleware(), uploadSensitifMiddleware, payIplController)
 router.post("/pay-kas", jwtAuth, idempotencyMiddleware(), uploadSensitifMiddleware, payKasController)
 router.get("/my-payments", jwtAuth, getFamilyPaymentsController)
 router.post("/payment-gateway/checkout", jwtAuth, idempotencyMiddleware(), createPaymentSessionController)
 router.get("/payment-gateway/status/:orderId", jwtAuth, checkPaymentStatusController)
+
+// Route Tagihan & Pembayaran IPL Warga
+router.get("/ipl/bills", jwtAuth, getMyBillsController)
+router.get("/ipl/bills/:id", jwtAuth, getBillDetailController)
+router.post("/ipl/pay", jwtAuth, idempotencyMiddleware(), uploadSensitifMiddleware, submitPaymentController)
 
 
 // Route Vote Karyawan Terbaik

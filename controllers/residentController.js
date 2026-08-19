@@ -4,10 +4,10 @@ import { responseSucces } from "../utils/response.js"
 import { emitSyncEvent } from "../utils/socket.js"
 import editResident from "../services/editedResident.js"
 import { inputWarga, listRumah } from "../services/inputHouse.js"
-import { getAccountById } from "../models/login.js"
-import { getWargaById, isKepalaKeluarga, deleteWargaById, getOtherFamilyMembers, updateFamilyHead } from "../models/inputwarganya.js"
-import { getFamilyById, getPopulationStats } from "../models/resident.js"
-import { decryptEmails } from "../helpers/ciihper.js"
+import { getAccountById, getAccountByIdWithAuth } from "../models/login.js"
+import { getWargaById, isKepalaKeluarga, deleteWargaById, getOtherFamilyMembers, updateFamilyHead, updateWargaNik, updateFamilyNoKk } from "../models/inputwarganya.js"
+import { getFamilyById, getPopulationStats, getKepalaKeluargaList } from "../models/resident.js"
+import { encryptEmails, decryptEmails } from "../helpers/ciihper.js"
 import { argonverify } from "../helpers/argon2.js"
 import { getHouseById } from "../models/houseWarga.js"
 import { createDocument } from "../models/document.js"
@@ -153,7 +153,7 @@ export async function revealWarga(req, res) {
     console.log(`[Request Reveal Warga] targetId: ${id}, byUserId: ${userId}`)
 
     try {
-        const dataUser = await getAccountById(userId)
+        const dataUser = await getAccountByIdWithAuth(userId)
         if (dataUser === "error" || dataUser.length === 0) {
             console.log(`[Response Reveal Warga] Gagal: Akun tidak ditemukan`)
             return res.status(404).json({ pesan: "Akun tidak ditemukan mas" })
@@ -188,7 +188,7 @@ export async function revealFamily(req, res) {
     console.log(`[Request Reveal Family] targetId: ${id}, byUserId: ${userId}`)
 
     try {
-        const dataUser = await getAccountById(userId)
+        const dataUser = await getAccountByIdWithAuth(userId)
         if (dataUser === "error" || dataUser.length === 0) {
             console.log(`[Response Reveal Family] Gagal: Akun tidak ditemukan`)
             return res.status(404).json({ pesan: "Akun tidak ditemukan mas" })
@@ -452,5 +452,105 @@ export async function deleteWargaController(req, res) {
             success: false,
             pesan: "error mas di controller deleteWargaController: " + err 
         })
+    }
+}
+
+/**
+ * Edit NIK warga berdasarkan ID warga.
+ * Hanya RT & Sekretaris yang boleh mengubah NIK.
+ * Body: { nik: "NIK baru" }
+ */
+export async function editNikWargaController(req, res) {
+    const { id } = req.params
+    const { nik } = req.body
+    console.log(`[Request Edit NIK Warga] targetId: ${id}, byUserId: ${req.user.id}`)
+
+    if (!nik) {
+        return res.status(400).json({ pesan: "NIK baru wajib diisi masbro!" })
+    }
+
+    try {
+        // 1. Cek apakah warga dengan ID ini ada
+        const warga = await getWargaById(id)
+        if (!warga || (typeof warga === "string" && warga.startsWith("error"))) {
+            console.log(`[Response Edit NIK Warga] Gagal: Warga id ${id} tidak ditemukan`)
+            return res.status(404).json({ pesan: "Data warga tidak ditemukan" })
+        }
+
+        // 2. Enkripsi NIK baru
+        const encryptedNik = encryptEmails(String(nik))
+
+        // 3. Update NIK di database
+        const result = await updateWargaNik(id, encryptedNik)
+        if (typeof result === "string" && result.startsWith("error")) {
+            return res.status(400).json({ pesan: result })
+        }
+
+        console.log(`[Response Edit NIK Warga] Sukses: NIK warga id ${id} berhasil diubah`)
+        emitSyncEvent("warga")
+        return responseSucces(200, { wargaId: Number(id) }, "NIK warga berhasil diperbarui masbro!", res)
+    } catch (err) {
+        console.log(`[Error Edit NIK Warga]:`, err)
+        return res.status(500).json({ pesan: "error mas di controller editNikWargaController: " + err })
+    }
+}
+
+/**
+ * Edit No KK (Kartu Keluarga) berdasarkan ID family.
+ * Hanya RT & Sekretaris yang boleh mengubah No KK.
+ * Body: { noKK: "No KK baru" }
+ */
+export async function editNoKkController(req, res) {
+    const { id } = req.params
+    const { noKK, no_kk, nokk } = req.body
+    const targetNoKk = noKK || no_kk || nokk
+    console.log(`[Request Edit No KK] targetFamilyId: ${id}, byUserId: ${req.user.id}`)
+
+    if (!targetNoKk) {
+        return res.status(400).json({ pesan: "No KK baru wajib diisi masbro!" })
+    }
+
+    try {
+        // 1. Cek apakah family/KK dengan ID ini ada
+        const family = await getFamilyById(id)
+        if (!family || (typeof family === "string" && family.startsWith("error"))) {
+            console.log(`[Response Edit No KK] Gagal: Family id ${id} tidak ditemukan`)
+            return res.status(404).json({ pesan: "Data KK tidak ditemukan" })
+        }
+
+        // 2. Enkripsi No KK baru
+        const encryptedNoKk = encryptEmails(String(targetNoKk))
+
+        // 3. Update No KK di database
+        const result = await updateFamilyNoKk(id, encryptedNoKk)
+        if (typeof result === "string" && result.startsWith("error")) {
+            return res.status(400).json({ pesan: result })
+        }
+
+        console.log(`[Response Edit No KK] Sukses: No KK family id ${id} berhasil diubah`)
+        emitSyncEvent("warga")
+        return responseSucces(200, { familyId: Number(id) }, "No KK berhasil diperbarui masbro!", res)
+    } catch (err) {
+        console.log(`[Error Edit No KK]:`, err)
+        return res.status(500).json({ pesan: "error mas di controller editNoKkController: " + err })
+    }
+}
+
+/**
+ * Controller untuk mengambil daftar nama dan ID Kepala Keluarga (KK).
+ * Format output: [{ id: 1, family_id: 1, warga_id: 5, nama: "Budi Santoso" }, ...]
+ */
+export async function getKepalaKeluargaController(req, res) {
+    console.log("[Request Get Kepala Keluarga List]")
+    try {
+        const list = await getKepalaKeluargaList()
+        if (typeof list === "string" && list.startsWith("error")) {
+            return res.status(400).json({ pesan: list })
+        }
+        console.log(`[Response Get Kepala Keluarga List] count: ${Array.isArray(list) ? list.length : 0}`)
+        return res.json(list)
+    } catch (err) {
+        console.log("[Error Get Kepala Keluarga List]:", err)
+        return res.status(500).json({ pesan: "error mas di controller getKepalaKeluargaController: " + err })
     }
 }
