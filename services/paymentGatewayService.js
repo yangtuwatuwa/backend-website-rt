@@ -32,13 +32,6 @@ export async function createPaymentSessionService({ familyId, amount, paymentTyp
             paymentUrl = `http://localhost:5173/mock-payment?order_id=${orderId}&amount=${targetAmount}`;
         }
 
-        // Cari resident_id
-        const [wargaRows] = await pool.execute(
-            "SELECT id FROM warga WHERE family_id = ? ORDER BY id ASC LIMIT 1",
-            [familyId]
-        );
-        const residentId = wargaRows.length > 0 ? wargaRows[0].id : 1;
-
         // Catat transaksi awal di DB
         if (paymentType === "ipl") {
             let targetBillIds = Array.isArray(billIds) ? billIds.filter(id => Boolean(id)) : [];
@@ -46,17 +39,16 @@ export async function createPaymentSessionService({ familyId, amount, paymentTyp
                 // Cari bill unpaid untuk family ini
                 const [bills] = await pool.execute(`
                     SELECT b.id, b.amount FROM bills b
-                    JOIN warga w ON b.resident_id = w.id
-                    WHERE w.family_id = ? AND b.status = 'unpaid'
+                    WHERE b.family_id = ? AND b.status = 'unpaid'
                     ORDER BY b.due_date ASC LIMIT 1
                 `, [familyId]);
                 if (bills.length > 0) targetBillIds = [bills[0].id];
             }
 
             const [payRes] = await pool.execute(
-                `INSERT INTO payments (resident_id, total_amount, channel, proof_url, status, created_at)
+                `INSERT INTO payments (family_id, total_amount, channel, proof_url, status, created_at)
                  VALUES (?, ?, 'transfer', ?, 'pending', NOW())`,
-                [residentId, targetAmount, `order_id:${orderId}`]
+                [familyId, targetAmount, `order_id:${orderId}`]
             );
             const paymentId = payRes.insertId;
 
@@ -71,9 +63,9 @@ export async function createPaymentSessionService({ familyId, amount, paymentTyp
             }
         } else {
             await pool.execute(
-                `INSERT INTO kas_contributions (resident_id, amount, category, description, channel, proof_url, status, created_at)
+                `INSERT INTO kas_contributions (family_id, amount, category, description, channel, proof_url, status, created_at)
                  VALUES (?, ?, ?, ?, 'transfer', ?, 'pending', NOW())`,
-                [residentId, targetAmount, category || "sosial", description || "Payment Gateway Kas RT", `order_id:${orderId}`]
+                [familyId, targetAmount, category || "sosial", description || "Payment Gateway Kas RT", `order_id:${orderId}`]
             );
         }
 

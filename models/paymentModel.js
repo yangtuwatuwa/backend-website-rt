@@ -17,7 +17,8 @@ async function ensureTables() {
  * Buat pencatatan pembayaran baru (Single / Rapel) beserta link tagihannya
  */
 export async function createPaymentWithLinks({
-    residentId,
+    familyId,
+    residentId, // Fallback parameter
     totalAmount,
     channel,
     proofUrl = null,
@@ -30,16 +31,17 @@ export async function createPaymentWithLinks({
 }, connection = null) {
     await ensureTables();
     const client = connection || db;
+    const targetFamilyId = familyId || residentId;
 
     // 1. Insert header payments
     const sqlPayment = `
         INSERT INTO payments (
-            resident_id, total_amount, channel, proof_url, 
+            family_id, total_amount, channel, proof_url, 
             status, reject_reason, recorded_by, verified_by, verified_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const [payResult] = await client.execute(sqlPayment, [
-        residentId,
+        targetFamilyId,
         totalAmount,
         channel,
         proofUrl,
@@ -73,15 +75,20 @@ export async function createPaymentWithLinks({
 export async function getPaymentById(id, connection = null) {
     await ensureTables();
     const client = connection || db;
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
         SELECT p.*,
-               w.nama AS resident_name, w.nik AS resident_nik, w.family_id,
                f.no_kk,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                rec.username AS recorded_by_username,
                ver.username AS verified_by_username
         FROM payments p
-        JOIN warga w ON p.resident_id = w.id
-        LEFT JOIN family f ON w.family_id = f.id
+        JOIN family f ON p.family_id = f.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN acount rec ON p.recorded_by = rec.id
         LEFT JOIN acount ver ON p.verified_by = ver.id
         WHERE p.id = ?
@@ -127,7 +134,7 @@ export async function getPaymentLinksByPaymentId(paymentId, connection = null) {
                b.amount AS bill_amount, b.due_date AS bill_due_date, b.status AS bill_status,
                b.bill_period_id,
                bp.title AS period_title, bp.period_month, bp.period_year,
-               b.resident_id
+               b.family_id
         FROM payment_bill_links pbl
         JOIN bills b ON pbl.bill_id = b.id
         JOIN bill_periods bp ON b.bill_period_id = bp.id
@@ -217,14 +224,19 @@ export async function getPaymentsByBillId(billId) {
  */
 export async function getPendingPaymentsList({ limit = 50, offset = 0 } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
         SELECT p.*,
-               w.nama AS resident_name, w.nik AS resident_nik, w.family_id,
                f.no_kk,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                rec.username AS recorded_by_username
         FROM payments p
-        JOIN warga w ON p.resident_id = w.id
-        LEFT JOIN family f ON w.family_id = f.id
+        JOIN family f ON p.family_id = f.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN acount rec ON p.recorded_by = rec.id
         WHERE p.status = 'pending'
         ORDER BY p.created_at ASC
@@ -249,15 +261,20 @@ export async function getPendingPaymentsList({ limit = 50, offset = 0 } = {}) {
  */
 export async function getPaymentAuditList({ limit = 100, offset = 0, channel, status, billPeriodId } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     let sql = `
         SELECT DISTINCT p.*,
-               w.nama AS resident_name, w.nik AS resident_nik, w.family_id,
                f.no_kk,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                rec.username AS recorded_by_username,
                ver.username AS verified_by_username
         FROM payments p
-        JOIN warga w ON p.resident_id = w.id
-        LEFT JOIN family f ON w.family_id = f.id
+        JOIN family f ON p.family_id = f.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN acount rec ON p.recorded_by = rec.id
         LEFT JOIN acount ver ON p.verified_by = ver.id
         LEFT JOIN payment_bill_links pbl ON p.id = pbl.payment_id

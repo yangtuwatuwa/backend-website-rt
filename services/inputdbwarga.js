@@ -28,23 +28,26 @@ export async function listWarga() {
         }
         
         const decryptedWarga = hasilnya.map(w => {
-            try {
-                const decTglLahir = decryptEmails(w.tgl_lahir);
-                const realUmur = calculateAge(decTglLahir, w.umur);
-                return {
-                    ...w,
-                    nik: maskData(decryptEmails(w.nik)),
-                    tgl_lahir: decTglLahir,
-                    no_hp: decryptEmails(w.no_hp),
-                    umur: realUmur,
-                    family_nokk: w.family_nokk ? maskData(decryptEmails(w.family_nokk)) : null,
-                    house_blok: w.house_blok ? decryptEmails(w.house_blok) : null,
-                    house_nomor: w.house_nomor ? decryptEmails(w.house_nomor) : null,
-                    house_alamat: w.house_alamat ? decryptEmails(w.house_alamat) : null
-                }
-            } catch (decErr) {
-                return w;
-            }
+            const decNik = decryptEmails(w.nik);
+            const decTglLahir = decryptEmails(w.tgl_lahir);
+            const decNoHp = decryptEmails(w.no_hp);
+            const decFamilyNoKk = w.family_nokk ? decryptEmails(w.family_nokk) : "";
+            const decBlok = w.house_blok ? decryptEmails(w.house_blok) : null;
+            const decNomor = w.house_nomor ? decryptEmails(w.house_nomor) : null;
+            const decAlamat = w.house_alamat ? decryptEmails(w.house_alamat) : null;
+            const realUmur = decTglLahir ? calculateAge(decTglLahir, w.umur) : w.umur;
+
+            return {
+                ...w,
+                nik: decNik ? maskData(decNik) : null,
+                tgl_lahir: decTglLahir || null,
+                no_hp: decNoHp || null,
+                umur: realUmur,
+                family_nokk: decFamilyNoKk ? maskData(decFamilyNoKk) : null,
+                house_blok: decBlok || null,
+                house_nomor: decNomor || null,
+                house_alamat: decAlamat || null
+            };
         })
         return decryptedWarga
     } catch (err) {
@@ -61,34 +64,36 @@ export async function listPendingWarga() {
         }
         
         const decryptedWarga = hasilnya.map(w => {
-            try {
-                const docId = w.ktp_document_id || null;
-                const decTglLahir = decryptEmails(w.tgl_lahir);
-                const realUmur = calculateAge(decTglLahir, w.umur);
-                const docType = w.document_type || (realUmur < 17 ? 'kia' : 'ktp');
-                const docUrl = docId ? `/resident/sensitifdata/file/${docId}` : `/admin/warga/${w.warga_id || w.id}/ktp`;
-                return {
-                    ...w,
-                    nik: maskData(decryptEmails(w.nik)),
-                    raw_nik: decryptEmails(w.nik),
-                    tgl_lahir: decTglLahir,
-                    no_hp: decryptEmails(w.no_hp),
-                    umur: realUmur,
-                    family_nokk: w.family_nokk ? maskData(decryptEmails(w.family_nokk)) : null,
-                    house_blok: w.house_blok ? decryptEmails(w.house_blok) : null,
-                    house_nomor: w.house_nomor ? decryptEmails(w.house_nomor) : null,
-                    house_alamat: w.house_alamat ? decryptEmails(w.house_alamat) : null,
-                    document_id: docId,
-                    document_type: docType,
-                    document_url: docUrl,
-                    ktp_document_id: docId,
-                    ktp_url: docUrl,
-                    has_ktp: Boolean(docId),
-                    has_document: Boolean(docId)
-                }
-            } catch (decErr) {
-                return w;
-            }
+            const docId = w.ktp_document_id || null;
+            const decNik = decryptEmails(w.nik);
+            const decTglLahir = decryptEmails(w.tgl_lahir);
+            const decNoHp = decryptEmails(w.no_hp);
+            const decFamilyNoKk = w.family_nokk ? decryptEmails(w.family_nokk) : "";
+            const decBlok = w.house_blok ? decryptEmails(w.house_blok) : null;
+            const decNomor = w.house_nomor ? decryptEmails(w.house_nomor) : null;
+            const decAlamat = w.house_alamat ? decryptEmails(w.house_alamat) : null;
+            const realUmur = decTglLahir ? calculateAge(decTglLahir, w.umur) : w.umur;
+            const docType = w.document_type || (realUmur < 17 ? 'kia' : 'ktp');
+            const docUrl = docId ? `/resident/sensitifdata/file/${docId}` : `/admin/warga/${w.warga_id || w.id}/ktp`;
+
+            return {
+                ...w,
+                nik: decNik ? maskData(decNik) : null,
+                tgl_lahir: decTglLahir || null,
+                no_hp: decNoHp || null,
+                umur: realUmur,
+                family_nokk: decFamilyNoKk ? maskData(decFamilyNoKk) : null,
+                house_blok: decBlok || null,
+                house_nomor: decNomor || null,
+                house_alamat: decAlamat || null,
+                document_id: docId,
+                document_type: docType,
+                document_url: docUrl,
+                ktp_document_id: docId,
+                ktp_url: docUrl,
+                has_ktp: Boolean(docId),
+                has_document: Boolean(docId)
+            };
         })
         return decryptedWarga
     } catch (err) {
@@ -149,45 +154,36 @@ export async function searchWargaService(searchQuery) {
 
         const results = []
         for (const w of allWargas) {
-            try {
-                const decNik = decryptEmails(w.nik)
-                const decTglLahir = decryptEmails(w.tgl_lahir)
-                const decNoHp = decryptEmails(w.no_hp)
-                const decKk = w.family_nokk ? decryptEmails(w.family_nokk) : ""
-                const decBlok = w.house_blok ? decryptEmails(w.house_blok) : ""
-                const decNomor = w.house_nomor ? decryptEmails(w.house_nomor) : ""
-                const decAlamat = w.house_alamat ? decryptEmails(w.house_alamat) : ""
-                const realUmur = calculateAge(decTglLahir, w.umur);
+            const decNik = decryptEmails(w.nik)
+            const decTglLahir = decryptEmails(w.tgl_lahir)
+            const decNoHp = decryptEmails(w.no_hp)
+            const decKk = w.family_nokk ? decryptEmails(w.family_nokk) : ""
+            const decBlok = w.house_blok ? decryptEmails(w.house_blok) : ""
+            const decNomor = w.house_nomor ? decryptEmails(w.house_nomor) : ""
+            const decAlamat = w.house_alamat ? decryptEmails(w.house_alamat) : ""
+            const realUmur = decTglLahir ? calculateAge(decTglLahir, w.umur) : w.umur;
 
-                const matches =
-                    w.nama.toLowerCase().includes(query) ||
-                    decNik.toLowerCase().includes(query) ||
-                    decKk.toLowerCase().includes(query) ||
-                    decBlok.toLowerCase().includes(query) ||
-                    decNomor.toLowerCase().includes(query) ||
-                    decAlamat.toLowerCase().includes(query) ||
-                    w.status_hidup.toLowerCase().includes(query)
+            const matches =
+                (w.nama && w.nama.toLowerCase().includes(query)) ||
+                (decNik && decNik.toLowerCase().includes(query)) ||
+                (decKk && decKk.toLowerCase().includes(query)) ||
+                (decBlok && decBlok.toLowerCase().includes(query)) ||
+                (decNomor && decNomor.toLowerCase().includes(query)) ||
+                (decAlamat && decAlamat.toLowerCase().includes(query)) ||
+                (w.status_hidup && w.status_hidup.toLowerCase().includes(query));
 
-                if (matches) {
-                    results.push({
-                        ...w,
-                        nik: maskData(decNik),
-                        tgl_lahir: decTglLahir,
-                        no_hp: decNoHp,
-                        umur: realUmur,
-                        family_nokk: w.family_nokk ? maskData(decKk) : null,
-                        house_blok: w.house_blok ? decBlok : null,
-                        house_nomor: w.house_nomor ? decNomor : null,
-                        house_alamat: w.house_alamat ? decAlamat : null
-                    })
-                }
-            } catch (decErr) {
-                if (
-                    w.nama.toLowerCase().includes(query) ||
-                    w.status_hidup.toLowerCase().includes(query)
-                ) {
-                    results.push(w)
-                }
+            if (matches) {
+                results.push({
+                    ...w,
+                    nik: decNik ? maskData(decNik) : null,
+                    tgl_lahir: decTglLahir || null,
+                    no_hp: decNoHp || null,
+                    umur: realUmur,
+                    family_nokk: decKk ? maskData(decKk) : null,
+                    house_blok: decBlok || null,
+                    house_nomor: decNomor || null,
+                    house_alamat: decAlamat || null
+                })
             }
         }
         return results

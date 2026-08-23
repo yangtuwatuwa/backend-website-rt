@@ -18,7 +18,8 @@ import { getAccountById } from "../models/login.js";
  * - Channel 'transfer' atau 'cash_to_rt': Status PENDING menunggu approval bendahara
  */
 export async function submitKasContributionService({
-    residentId,
+    familyId,
+    residentId, // Fallback parameter
     amount,
     category,
     description = "-",
@@ -26,6 +27,7 @@ export async function submitKasContributionService({
     proofUrl = null,
     recordedBy = null
 }) {
+    const targetFamilyId = familyId || residentId;
     const validCategories = ['kematian', 'sosial', 'kegiatan', 'lainnya'];
     const cleanCategory = String(category || "").toLowerCase().trim();
     if (!validCategories.includes(cleanCategory)) {
@@ -56,7 +58,7 @@ export async function submitKasContributionService({
         if (channel === 'cash_to_bendahara') {
             // Tunai langsung diterima Bendahara -> Approved & Catat ke Ledger
             const insertResult = await createKasContribution({
-                residentId,
+                familyId: targetFamilyId,
                 amount: cleanAmount,
                 category: cleanCategory,
                 description: cleanDesc,
@@ -68,7 +70,7 @@ export async function submitKasContributionService({
                 verifiedAt: now
             }, connection);
 
-            const ledgerDesc = `Iuran Kas [${cleanCategory.toUpperCase()}] - ${cleanDesc} (Warga ID ${residentId})`;
+            const ledgerDesc = `Iuran Kas [${cleanCategory.toUpperCase()}] - ${cleanDesc} (KK ID ${targetFamilyId})`;
             await writeLedgerEntry({
                 type: 'in',
                 amount: cleanAmount,
@@ -87,7 +89,7 @@ export async function submitKasContributionService({
         } else {
             // Transfer atau Cash via RT -> Pending verifikasi Bendahara
             const insertResult = await createKasContribution({
-                residentId,
+                familyId: targetFamilyId,
                 amount: cleanAmount,
                 category: cleanCategory,
                 description: cleanDesc,
@@ -154,7 +156,7 @@ export async function verifyKasContributionService({ contributionId, decision, a
             }, connection);
 
             // Tulis entri ke Buku Kas RT (financial_ledger)
-            const ledgerDesc = `Iuran Kas [${contribution.category.toUpperCase()}] - ${contribution.description || '-'} (Warga ID ${contribution.resident_id})`;
+            const ledgerDesc = `Iuran Kas [${contribution.category.toUpperCase()}] - ${contribution.description || '-'} (KK ID ${contribution.family_id})`;
             await writeLedgerEntry({
                 type: 'in',
                 amount: contribution.amount,

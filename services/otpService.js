@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import { argonhash, argonverify } from '../helpers/argon2.js';
 import { sendOtpEmail } from '../utils/mailer.js';
+import { normalizeEmail, computeBlindIndex } from '../lib/crypto/email.js';
+import { findAccountByBlindIndex } from '../models/register.js';
 import { 
   invalidatePreviousOtps, 
   saveOtpCode, 
@@ -19,7 +21,21 @@ const MAX_ATTEMPTS = 3;
  */
 export async function requestOtpService(userId, email, purpose = 'VERIFICATION') {
   try {
-    // 1. Nonaktifkan OTP lama yang belum terpakai milik user ini
+    // 1. Validasi duplikat email khusus untuk registrasi/verifikasi akun baru
+    if (purpose === 'VERIFICATION' || purpose === 'REGISTRATION') {
+      const cleanEmail = (email || '').trim();
+      const normalized = normalizeEmail(cleanEmail);
+      const blindIdx = computeBlindIndex(normalized);
+      const isEmailTaken = await findAccountByBlindIndex(blindIdx);
+      if (isEmailTaken) {
+        return {
+          success: false,
+          message: "Email sudah terdaftar pada akun lain"
+        };
+      }
+    }
+
+    // 2. Nonaktifkan OTP lama yang belum terpakai milik user ini
     await invalidatePreviousOtps(userId, purpose);
 
     // 2. Generate 6 digit angka acak yang aman (100000 - 999999)

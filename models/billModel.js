@@ -44,12 +44,13 @@ export async function createBatchBills(billsData, connection = null) {
 
     const values = [];
     const placeholders = billsData.map(b => {
-        values.push(b.bill_period_id, b.resident_id, b.amount, b.due_date, b.status || 'unpaid');
+        const targetFamilyId = b.family_id || b.resident_id;
+        values.push(b.bill_period_id, targetFamilyId, b.amount, b.due_date, b.status || 'unpaid');
         return "(?, ?, ?, ?, ?)";
     }).join(", ");
 
     const sql = `
-        INSERT IGNORE INTO bills (bill_period_id, resident_id, amount, due_date, status)
+        INSERT IGNORE INTO bills (bill_period_id, family_id, amount, due_date, status)
         VALUES ${placeholders}
     `;
 
@@ -68,18 +69,23 @@ export async function createBatchBills(billsData, connection = null) {
 export async function getBillById(id, connection = null) {
     await ensureTables();
     const client = connection || db;
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
         SELECT b.*,
                bp.title AS period_title, bp.period_month, bp.period_year,
-               w.nama AS resident_name, w.nik AS resident_nik, w.family_id,
                f.no_kk,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                h.blok AS house_blok, h.nomor AS house_nomor,
                a.username AS exempt_by_username
         FROM bills b
         JOIN bill_periods bp ON b.bill_period_id = bp.id
-        JOIN warga w ON b.resident_id = w.id
-        LEFT JOIN family f ON w.family_id = f.id
-        LEFT JOIN house h ON w.house_id = h.id
+        JOIN family f ON b.family_id = f.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
+        LEFT JOIN house h ON f.house_id = h.id
         LEFT JOIN acount a ON b.exempt_by = a.id
         WHERE b.id = ?
     `;
@@ -113,14 +119,19 @@ export async function getBillByIdForUpdate(id, connection) {
  */
 export async function getBillsByResident(residentId, { status, year, month } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`.
     let sql = `
         SELECT b.*,
                bp.title AS period_title, bp.period_month, bp.period_year,
-               w.nama AS resident_name, w.family_id
+               f.no_kk,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name
         FROM bills b
         JOIN bill_periods bp ON b.bill_period_id = bp.id
-        JOIN warga w ON b.resident_id = w.id
-        WHERE b.resident_id = ?
+        JOIN family f ON b.family_id = f.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
+        WHERE b.family_id = (SELECT family_id FROM warga WHERE id = ? LIMIT 1)
     `;
     const params = [residentId];
 
@@ -157,15 +168,19 @@ export async function getBillsByResident(residentId, { status, year, month } = {
  */
 export async function getBillsByFamilyId(familyId, { status, year, month } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`.
     let sql = `
         SELECT b.*,
                bp.title AS period_title, bp.period_month, bp.period_year,
-               w.nama AS resident_name, w.family_id, f.no_kk
+               f.no_kk,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name
         FROM bills b
         JOIN bill_periods bp ON b.bill_period_id = bp.id
-        JOIN warga w ON b.resident_id = w.id
-        JOIN family f ON w.family_id = f.id
-        WHERE w.family_id = ?
+        JOIN family f ON b.family_id = f.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
+        WHERE b.family_id = ?
     `;
     const params = [familyId];
 
@@ -205,10 +220,9 @@ export async function getBillsByIdsForUpdate(ids, connection) {
     if (!Array.isArray(ids) || ids.length === 0) return [];
     const placeholders = ids.map(() => "?").join(", ");
     const sql = `
-        SELECT b.*, w.family_id, f.no_kk, bp.title AS period_title, bp.period_month, bp.period_year
+        SELECT b.*, f.no_kk, bp.title AS period_title, bp.period_month, bp.period_year
         FROM bills b
-        JOIN warga w ON b.resident_id = w.id
-        LEFT JOIN family f ON w.family_id = f.id
+        JOIN family f ON b.family_id = f.id
         JOIN bill_periods bp ON b.bill_period_id = bp.id
         WHERE b.id IN (${placeholders})
         FOR UPDATE
@@ -227,16 +241,21 @@ export async function getBillsByIdsForUpdate(ids, connection) {
  */
 export async function getBillsByPeriodId(billPeriodId, { status, limit = 100, offset = 0 } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     let sql = `
         SELECT b.*,
-               w.nama AS resident_name, w.nik AS resident_nik, w.family_id,
                f.no_kk,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                h.blok AS house_blok, h.nomor AS house_nomor,
                p.id AS latest_payment_id, p.status AS payment_status, p.channel AS payment_channel, p.proof_url
         FROM bills b
-        JOIN warga w ON b.resident_id = w.id
-        LEFT JOIN family f ON w.family_id = f.id
-        LEFT JOIN house h ON w.house_id = h.id
+        JOIN family f ON b.family_id = f.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
+        LEFT JOIN house h ON f.house_id = h.id
         LEFT JOIN (
             SELECT pbl.bill_id, p1.id, p1.status, p1.channel, p1.proof_url
             FROM payment_bill_links pbl

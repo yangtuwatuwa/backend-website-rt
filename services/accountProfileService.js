@@ -1,6 +1,6 @@
 import { getAccountById, getAccountByIdWithAuth } from "../models/login.js";
 import { checkUsernameExistsExceptUser, updateAccountProfile } from "../models/accountProfile.js";
-import { decryptEmails, encryptEmails } from "../helpers/ciihper.js";
+import { normalizeEmail, computeBlindIndex, encryptEmail, decryptEmail } from "../lib/crypto/email.js";
 import { argonhash, argonverify } from "../helpers/argon2.js";
 import { SAFE_COLUMNS_SQL } from "../helpers/sanitizeUser.js";
 import pool from "../config/sqlconfig.js";
@@ -14,15 +14,14 @@ export async function getMyAccountService(userId) {
 
         const user = rows[0];
         let decryptedEmail = null;
-        if (user.email) {
+        if (user.email_encrypted) {
             try {
-                decryptedEmail = decryptEmails(user.email);
+                decryptedEmail = decryptEmail(user.email_encrypted);
             } catch (e) {
-                decryptedEmail = user.email;
+                decryptedEmail = null;
             }
         }
 
-        
         return {
             id: user.id,
             username: user.username,
@@ -71,8 +70,11 @@ export async function updateMyAccountService(userId, { username, email, oldPassw
 
         // 3. Enkripsi email jika diisi
         let encryptedEmail = undefined;
-        if (email !== undefined) {
-            encryptedEmail = email ? encryptEmails(email.trim()) : null;
+        let blindIdx = undefined;
+        if (email !== undefined && email !== null && email.trim() !== "") {
+            const normalized = normalizeEmail(email);
+            blindIdx = computeBlindIndex(normalized);
+            encryptedEmail = encryptEmail(normalized);
         }
 
         const targetUsername = username ? username.trim() : undefined;
@@ -81,6 +83,7 @@ export async function updateMyAccountService(userId, { username, email, oldPassw
         await updateAccountProfile(userId, {
             username: targetUsername,
             encryptedEmail,
+            blindIdx,
             passwordHash
         });
 
@@ -88,7 +91,7 @@ export async function updateMyAccountService(userId, { username, email, oldPassw
         return await getMyAccountService(userId);
     } catch (err) {
         console.log("error updateMyAccountService:", err);
-        return "error karena: " + err;
+        return "error karena: " + (err.message || err);
     }
 }
 
@@ -121,8 +124,11 @@ export async function updateAccountByAdminService({ accountId, familyId, usernam
         }
 
         let encryptedEmail = undefined;
-        if (email !== undefined) {
-            encryptedEmail = email ? encryptEmails(email.trim()) : null;
+        let blindIdx = undefined;
+        if (email !== undefined && email !== null && email.trim() !== "") {
+            const normalized = normalizeEmail(email);
+            blindIdx = computeBlindIndex(normalized);
+            encryptedEmail = encryptEmail(normalized);
         }
 
         const targetUsername = username ? username.trim() : undefined;
@@ -130,13 +136,15 @@ export async function updateAccountByAdminService({ accountId, familyId, usernam
         await updateAccountProfile(targetUser.id, {
             username: targetUsername,
             encryptedEmail,
+            blindIdx,
             passwordHash
         });
 
         return await getMyAccountService(targetUser.id);
     } catch (err) {
         console.log("error updateAccountByAdminService:", err);
-        return "error karena: " + err;
+        return "error karena: " + (err.message || err);
     }
 }
+
 

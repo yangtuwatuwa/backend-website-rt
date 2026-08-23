@@ -1,26 +1,8 @@
 import db from "../config/sqlconfig.js"
 import { autoHealFamilyHeads } from "./inputwarganya.js"
 
-export async function inputWarganya(nokk, houseId , kepalaKelaurgaId ){
-    const sqlcommand = "INSERT INTO family (id , no_kk , house_id , kepala_keluarga_id) VALUES (NULL , ? , ? , ?) "
-    try {
-        let targetHead = null
-        if (kepalaKelaurgaId && !isNaN(kepalaKelaurgaId) && Number(kepalaKelaurgaId) > 0) {
-            const [wargaCheck] = await db.execute("SELECT id FROM warga WHERE id = ?", [kepalaKelaurgaId])
-            if (Array.isArray(wargaCheck) && wargaCheck.length > 0) {
-                targetHead = kepalaKelaurgaId
-            }
-        }
-        const hasilnya = await db.execute(sqlcommand , [nokk , houseId , targetHead])
-        return hasilnya
-    } catch (err) {
-        console.log(err)
-        return "error karena: " + err
-    }
-}
-
-
 export async function getWarganya() {
+
     await autoHealFamilyHeads()
     const sqlcommand = `
         SELECT 
@@ -224,10 +206,9 @@ export async function getPopulationStats() {
         const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
         const [paidRows] = await db.execute(`
-            SELECT bp.period_month AS month, COUNT(DISTINCT w.family_id) AS paid_families
+            SELECT bp.period_month AS month, COUNT(DISTINCT b.family_id) AS paid_families
             FROM bills b
             JOIN bill_periods bp ON b.bill_period_id = bp.id
-            JOIN warga w ON b.resident_id = w.id
             WHERE bp.period_year = ? AND b.status = 'paid'
             GROUP BY bp.period_month
         `, [currentYear]);

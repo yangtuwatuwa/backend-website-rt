@@ -1,9 +1,9 @@
 import { warganyain, listWarga, updateWargaService, searchWargaService } from "../services/inputdbwarga.js"
-import { logicWarganya, listWarganya } from "../services/inputDataWarga.js"
+import { listWarganya } from "../services/inputDataWarga.js"
 import { responseSucces } from "../utils/response.js"
 import { emitSyncEvent } from "../utils/socket.js"
 import editResident from "../services/editedResident.js"
-import { inputWarga, listRumah } from "../services/inputHouse.js"
+import { listRumah } from "../services/inputHouse.js"
 import { getAccountById, getAccountByIdWithAuth } from "../models/login.js"
 import { getWargaById, isKepalaKeluarga, deleteWargaById, getOtherFamilyMembers, updateFamilyHead, updateWargaNik, updateFamilyNoKk } from "../models/inputwarganya.js"
 import { getFamilyById, getPopulationStats, getKepalaKeluargaList } from "../models/resident.js"
@@ -12,35 +12,6 @@ import { argonverify } from "../helpers/argon2.js"
 import { getHouseById } from "../models/houseWarga.js"
 import { createDocument } from "../models/document.js"
 import fs from "fs"
-
-
-
-export async function inputData(req, res) {
-    const { noKK, home, houseId, house_id, KepalaKeluarga, kepalaKeluarga, kepala_keluarga_id } = req.body
-    const targetHouseId = home || houseId || house_id
-    const targetHeadId = KepalaKeluarga || kepalaKeluarga || kepala_keluarga_id || null
-    console.log(`[Request Input Data Warga / KK] noKK: ${noKK}, houseId: ${targetHouseId}, kepalaKeluarga: ${targetHeadId}`)
-
-    if (!noKK) {
-        return res.status(400).json({ pesan: "Nomor KK wajib diisi masbro!" })
-    }
-    if (!targetHouseId) {
-        return res.status(400).json({ pesan: "ID Rumah (houseId) wajib diisi masbro!" })
-    }
-
-    try {
-        const warga = await logicWarganya(noKK, targetHouseId, targetHeadId)
-        console.log(`[Response Input Data Warga / KK] hasil:`, warga)
-        if (typeof warga === "string" && warga.startsWith("error")) {
-            return res.status(400).json({ pesan: warga })
-        }
-        emitSyncEvent("warga")
-        return responseSucces(200, warga, "Data KK berhasil ditambahkan masbro", res)
-    } catch (err) {
-        console.log(`[Error Input Data Warga / KK]:`, err)
-        return res.status(500).json("error mas di controllers: " + err)
-    }
-}
 
 export async function getResident(req, res) {
     console.log(`[Request Get Resident]`)
@@ -76,21 +47,21 @@ export async function editedResident(req, res) {
     }
 }
 
-export async function inputHouse(req, res) {
-    const { blok, nomor, alamat, status } = req.body
-    console.log(`[Request Input House] blok: ${blok}, nomor: ${nomor}, alamat: ${alamat}, status: ${status}`)
+export async function getHouse(req, res) {
+    console.log(`[Request Get House]`)
     try {
-        const hasilnya = await inputWarga(blok, nomor, alamat, status)
-        console.log(`[Response Input House] hasil:`, hasilnya)
-        if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
-            return res.status(400).json(hasilnya)
+        const rumah = await listRumah()
+        console.log(`[Response Get House] count: ${Array.isArray(rumah) ? rumah.length : 0}`)
+        if (typeof rumah === "string" && rumah.startsWith("error")) {
+            return res.status(400).json(rumah)
         }
-        return responseSucces(200, hasilnya, "data nya sudah terkirim ", res)
-    } catch (error) {
-        console.log(`[Error Input House]:`, error)
-        return res.status(500).json("data tidak terkirim " + error)
+        return res.json(rumah)
+    } catch (err) {
+        console.log(`[Error Get House]:`, err)
+        return res.status(500).json("error mas di controllers: " + err)
     }
 }
+
 
 export async function warga(req, res) {
     const { nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, fammilyId, familyId, family_id, houseId, house_id, isKepalaKeluarga, is_kepala_keluarga } = req.body
@@ -116,20 +87,6 @@ export async function warga(req, res) {
     }
 }
 
-export async function getHouse(req, res) {
-    console.log(`[Request Get House]`)
-    try {
-        const rumah = await listRumah()
-        console.log(`[Response Get House] count: ${Array.isArray(rumah) ? rumah.length : 0}`)
-        if (typeof rumah === "string" && rumah.startsWith("error")) {
-            return res.status(400).json(rumah)
-        }
-        return res.json(rumah)
-    } catch (err) {
-        console.log(`[Error Get House]:`, err)
-        return res.status(500).json("error mas di controllers: " + err)
-    }
-}
 
 export async function getWarga(req, res) {
     console.log(`[Request Get Warga]`)

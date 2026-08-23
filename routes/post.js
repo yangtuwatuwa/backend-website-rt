@@ -1,6 +1,6 @@
 import e from "express";
 import { regist, login } from "../controllers/registandlogin.js";
-// import debugRegisterFamily removed – endpoint now uses regular regist
+import { debugRegistController } from "../controllers/debugRegistController.js";
 import { regex , verifyInput } from "../middlewares/verivyGmail.js";
 import { authLimiter } from "../middlewares/rateLimiter.js";
 
@@ -11,7 +11,8 @@ const app = e()
 app.post("/login", login)
 
 app.post("/register", verifyInput(regex), regist);
-app.post("/debug-regist", verifyInput(regex), regist);
+app.post("/debug-regist", verifyInput(regex), debugRegistController);
+
 
 
 

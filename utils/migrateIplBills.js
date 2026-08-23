@@ -29,7 +29,7 @@ export async function initIplBillingTables() {
             CREATE TABLE IF NOT EXISTS bills (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 bill_period_id INT NOT NULL,
-                resident_id INT NOT NULL,
+                family_id INT NOT NULL,
                 amount DECIMAL(12, 2) NOT NULL,
                 due_date DATE NOT NULL,
                 status ENUM('unpaid', 'waiting_verification', 'paid', 'exempt') NOT NULL DEFAULT 'unpaid',
@@ -38,13 +38,13 @@ export async function initIplBillingTables() {
                 exempt_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY uq_period_resident (bill_period_id, resident_id),
-                INDEX idx_bills_resident_id (resident_id),
+                UNIQUE KEY uq_period_family (bill_period_id, family_id),
+                INDEX idx_bills_family_id (family_id),
                 INDEX idx_bills_bill_period_id (bill_period_id),
                 INDEX idx_bills_status (status),
                 INDEX idx_bills_due_date_status (due_date, status),
                 CONSTRAINT fk_bills_bill_period FOREIGN KEY (bill_period_id) REFERENCES bill_periods(id) ON DELETE RESTRICT,
-                CONSTRAINT fk_bills_resident FOREIGN KEY (resident_id) REFERENCES warga(id) ON DELETE RESTRICT,
+                CONSTRAINT fk_bills_family FOREIGN KEY (family_id) REFERENCES family(id) ON DELETE RESTRICT,
                 CONSTRAINT fk_bills_exempt_by FOREIGN KEY (exempt_by) REFERENCES acount(id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
@@ -53,7 +53,7 @@ export async function initIplBillingTables() {
         await db.execute(`
             CREATE TABLE IF NOT EXISTS payments (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                resident_id INT NOT NULL,
+                family_id INT NOT NULL,
                 total_amount DECIMAL(12, 2) NOT NULL,
                 channel ENUM('transfer', 'cash_to_rt', 'cash_to_bendahara') NOT NULL,
                 proof_url VARCHAR(255) NULL,
@@ -64,10 +64,10 @@ export async function initIplBillingTables() {
                 verified_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_payments_resident_id (resident_id),
+                INDEX idx_payments_family_id (family_id),
                 INDEX idx_payments_status (status),
                 INDEX idx_payments_created_at (created_at),
-                CONSTRAINT fk_payments_resident FOREIGN KEY (resident_id) REFERENCES warga(id) ON DELETE RESTRICT,
+                CONSTRAINT fk_payments_family FOREIGN KEY (family_id) REFERENCES family(id) ON DELETE RESTRICT,
                 CONSTRAINT fk_payments_recorded_by FOREIGN KEY (recorded_by) REFERENCES acount(id) ON DELETE SET NULL,
                 CONSTRAINT fk_payments_verified_by FOREIGN KEY (verified_by) REFERENCES acount(id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -92,7 +92,7 @@ export async function initIplBillingTables() {
         await db.execute(`
             CREATE TABLE IF NOT EXISTS kas_contributions (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                resident_id INT NOT NULL,
+                family_id INT NOT NULL,
                 amount DECIMAL(12, 2) NOT NULL,
                 category ENUM('kematian', 'sosial', 'kegiatan', 'lainnya') NOT NULL,
                 description TEXT NULL,
@@ -105,11 +105,11 @@ export async function initIplBillingTables() {
                 verified_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_kas_resident_id (resident_id),
+                INDEX idx_kas_family_id (family_id),
                 INDEX idx_kas_status (status),
                 INDEX idx_kas_category (category),
                 INDEX idx_kas_created_at (created_at),
-                CONSTRAINT fk_kas_resident FOREIGN KEY (resident_id) REFERENCES warga(id) ON DELETE RESTRICT,
+                CONSTRAINT fk_kas_family FOREIGN KEY (family_id) REFERENCES family(id) ON DELETE RESTRICT,
                 CONSTRAINT fk_kas_recorded_by FOREIGN KEY (recorded_by) REFERENCES acount(id) ON DELETE SET NULL,
                 CONSTRAINT fk_kas_verified_by FOREIGN KEY (verified_by) REFERENCES acount(id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -182,15 +182,13 @@ export async function initIplBillingTables() {
                                 periodId = createP.insertId;
                             }
 
-                            // 2. Cari resident_id dari family_id
-                            const [wargaRows] = await db.execute("SELECT id FROM warga WHERE family_id = ? ORDER BY id ASC LIMIT 1", [row.family_id]);
-                            if (wargaRows.length > 0) {
-                                const residentId = wargaRows[0].id;
+                            const familyId = row.family_id;
+                            if (familyId) {
                                 const billStatus = row.status === 'diterima' ? 'paid' : (row.status === 'pending' ? 'waiting_verification' : 'unpaid');
                                 const paymentStatus = row.status === 'diterima' ? 'approved' : (row.status === 'ditolak' ? 'rejected' : 'pending');
 
-                                // 3. Pastikan bill ada
-                                let [bills] = await db.execute("SELECT id FROM bills WHERE bill_period_id = ? AND resident_id = ? LIMIT 1", [periodId, residentId]);
+                                // 2. Pastikan bill ada
+                                let [bills] = await db.execute("SELECT id FROM bills WHERE bill_period_id = ? AND family_id = ? LIMIT 1", [periodId, familyId]);
                                 let billId;
                                 if (bills.length > 0) {
                                     billId = bills[0].id;
@@ -199,17 +197,17 @@ export async function initIplBillingTables() {
                                     }
                                 } else {
                                     const [createB] = await db.execute(
-                                        "INSERT INTO bills (bill_period_id, resident_id, amount, due_date, status) VALUES (?, ?, ?, ?, ?)",
-                                        [periodId, residentId, row.amount || 200000, dueDate, billStatus]
+                                        "INSERT INTO bills (bill_period_id, family_id, amount, due_date, status) VALUES (?, ?, ?, ?, ?)",
+                                        [periodId, familyId, row.amount || 200000, dueDate, billStatus]
                                     );
                                     billId = createB.insertId;
                                 }
 
-                                // 4. Buat payments & payment_bill_links
+                                // 3. Buat payments & payment_bill_links
                                 const [payRes] = await db.execute(
-                                    `INSERT INTO payments (resident_id, total_amount, channel, proof_url, status, created_at)
+                                    `INSERT INTO payments (family_id, total_amount, channel, proof_url, status, created_at)
                                      VALUES (?, ?, 'transfer', ?, ?, ?)`,
-                                    [residentId, row.amount || 200000, row.payment_proof || 'migrated', paymentStatus, row.payment_date || new Date()]
+                                    [familyId, row.amount || 200000, row.payment_proof || 'migrated', paymentStatus, row.payment_date || new Date()]
                                 );
                                 const payId = payRes.insertId;
 
@@ -242,15 +240,14 @@ export async function initIplBillingTables() {
                     console.log(`⏳ Memigrasikan ${oldKasRows.length} data historis dari kas_payment...`);
                     for (const row of oldKasRows) {
                         try {
-                            const [wargaRows] = await db.execute("SELECT id FROM warga WHERE family_id = ? ORDER BY id ASC LIMIT 1", [row.family_id]);
-                            const residentId = wargaRows.length > 0 ? wargaRows[0].id : 1;
+                            const familyId = row.family_id || 1;
                             const status = row.status === 'diterima' ? 'approved' : (row.status === 'ditolak' ? 'rejected' : 'pending');
                             const category = ['kematian', 'sosial', 'kegiatan', 'lainnya'].includes(row.category) ? row.category : 'lainnya';
 
                             await db.execute(
-                                `INSERT INTO kas_contributions (resident_id, amount, category, description, channel, proof_url, status, created_at)
+                                `INSERT INTO kas_contributions (family_id, amount, category, description, channel, proof_url, status, created_at)
                                  VALUES (?, ?, ?, ?, 'transfer', ?, ?, ?)`,
-                                [residentId, row.amount || 0, category, row.description || '-', row.payment_proof || 'migrated', status, row.payment_date || new Date()]
+                                [familyId, row.amount || 0, category, row.description || '-', row.payment_proof || 'migrated', status, row.payment_date || new Date()]
                             );
                         } catch (singleKasErr) {
                             console.log("Warning migrasi row kas_payment:", singleKasErr.message);

@@ -10,9 +10,19 @@ export function encryptEmails(email) {
 }
 
 export function decryptEmails(cipherText) {
-    const keyCrypto = process.env.KEYENCRYPT
-    const byte = CryptoJS.AES.decrypt(cipherText , keyCrypto)
-    const hasilnya = byte.toString(CryptoJS.enc.Utf8)
-    return hasilnya;
+    if (cipherText === null || cipherText === undefined || cipherText === "" || typeof cipherText !== "string") {
+        return "";
+    }
+    const keyCrypto = process.env.KEYENCRYPT;
+    if (!keyCrypto) {
+        return "";
+    }
+    try {
+        const byte = CryptoJS.AES.decrypt(cipherText, keyCrypto);
+        const hasilnya = byte.toString(CryptoJS.enc.Utf8);
+        return hasilnya || "";
+    } catch (err) {
+        return "";
+    }
 }
 

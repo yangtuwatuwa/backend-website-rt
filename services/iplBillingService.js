@@ -140,24 +140,22 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
             return { error: "Periode tagihan ini sudah pernah dipublish sebelumnya!" };
         }
 
-        // 2. Ambil seluruh warga aktif (warga yang berstatus data diterima dan hidup)
-        const [activeResidents] = await connection.execute(`
-            SELECT w.id AS resident_id, w.nama, w.family_id
-            FROM warga w
-            WHERE (w.status_data = 'diterima' OR w.status_data IS NULL)
-              AND (w.status_hidup = 'Hidup' OR w.status_hidup IS NULL)
-            ORDER BY w.id ASC
+        // 2. Ambil seluruh keluarga (KK) aktif (1 KK = 1 tagihan per periode)
+        const [activeFamilies] = await connection.execute(`
+            SELECT f.id AS family_id
+            FROM family f
+            ORDER BY f.id ASC
         `);
 
-        if (!activeResidents || activeResidents.length === 0) {
+        if (!activeFamilies || activeFamilies.length === 0) {
             await connection.rollback();
-            return { error: "Tidak ada warga aktif yang ditemukan untuk diterbitkan tagihan!" };
+            return { error: "Tidak ada keluarga (KK) yang ditemukan untuk diterbitkan tagihan!" };
         }
 
-        // 3. Siapkan data batch bills (snapshot amount & due_date)
-        const billsToInsert = activeResidents.map(r => ({
+        // 3. Siapkan data batch bills (snapshot amount & due_date per family)
+        const billsToInsert = activeFamilies.map(f => ({
             bill_period_id: period.id,
-            resident_id: r.resident_id,
+            family_id: f.family_id,
             amount: period.default_amount,
             due_date: period.due_date,
             status: 'unpaid'
@@ -173,9 +171,9 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
 
         const summary = await getBillsSummaryByPeriodId(period.id);
         return {
-            message: `Tagihan "${period.title}" berhasil dipublish untuk ${activeResidents.length} warga aktif!`,
+            message: `Tagihan "${period.title}" berhasil dipublish untuk ${activeFamilies.length} keluarga (KK)!`,
             period_id: period.id,
-            total_bills_generated: activeResidents.length,
+            total_bills_generated: activeFamilies.length,
             summary
         };
     } catch (err) {
@@ -199,7 +197,8 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
 export async function submitPaymentService({
     billIds,
     billId, // Fallback jika single id dikirim
-    residentId,
+    familyId,
+    residentId, // Fallback
     amountStated,
     channel,
     proofUrl = null,
@@ -255,9 +254,8 @@ export async function submitPaymentService({
             return { error: "Satu atau lebih tagihan yang dipilih tidak ditemukan di database!" };
         }
 
-        // 2. Validasi kepemilikan tagihan (semua tagihan harus milik KK / warga yang sama)
+        // 2. Validasi kepemilikan tagihan (semua tagihan harus milik KK yang sama)
         const primaryFamilyId = bills[0].family_id;
-        const primaryResidentId = bills[0].resident_id;
 
         for (const b of bills) {
             if (primaryFamilyId && b.family_id && String(b.family_id) !== String(primaryFamilyId)) {
@@ -290,7 +288,7 @@ export async function submitPaymentService({
             };
         }
 
-        const targetResidentId = residentId || primaryResidentId;
+        const targetFamilyId = familyId || primaryFamilyId;
         const billAllocations = bills.map(b => ({
             billId: b.id,
             allocatedAmount: parseFloat(b.amount)
@@ -301,7 +299,7 @@ export async function submitPaymentService({
             // Tunai langsung diterima bendahara -> otomatis approved & paid
             const now = new Date();
             const payResult = await createPaymentWithLinks({
-                residentId: targetResidentId,
+                familyId: targetFamilyId,
                 totalAmount,
                 channel,
                 proofUrl: proofUrl || 'cash_in_hand',
@@ -317,7 +315,7 @@ export async function submitPaymentService({
 
             // Catat ke Buku Kas RT (financial_ledger)
             const periodTitles = bills.map(b => b.period_title || `#${b.id}`).join(", ");
-            const ledgerDesc = `Pembayaran IPL Tunai Bendahara [${periodTitles}] (Warga ID ${targetResidentId})`;
+            const ledgerDesc = `Pembayaran IPL Tunai Bendahara [${periodTitles}] (KK ID ${targetFamilyId})`;
             await writeLedgerEntry({
                 type: 'in',
                 amount: totalAmount,
@@ -338,7 +336,7 @@ export async function submitPaymentService({
         } else {
             // Transfer atau Cash via RT -> Masuk antrean pending verifikasi bendahara
             const payResult = await createPaymentWithLinks({
-                residentId: targetResidentId,
+                familyId: targetFamilyId,
                 totalAmount,
                 channel,
                 proofUrl,
@@ -472,7 +470,7 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
 
             // 3. Catat pemasukan ke Buku Kas RT (financial_ledger)
             const periodTitles = links.map(l => l.period_title || `#${l.bill_id}`).join(", ");
-            const ledgerDesc = `Pembayaran IPL Terverifikasi [${periodTitles}] (Warga ID ${payment.resident_id})`;
+            const ledgerDesc = `Pembayaran IPL Terverifikasi [${periodTitles}] (KK ID ${payment.family_id})`;
             await writeLedgerEntry({
                 type: 'in',
                 amount: payment.total_amount,

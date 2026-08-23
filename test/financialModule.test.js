@@ -58,13 +58,14 @@ async function runFinancialTests() {
         await pool.query("DELETE FROM financial_ledger WHERE id > 0;");
         await pool.query("SET FOREIGN_KEY_CHECKS = 1;");
 
-        // Siapkan dummy data keluarga & warga
-        const [famRes] = await pool.query("INSERT INTO family (id, no_kk) VALUES (991, 'KK-TEST-991') ON DUPLICATE KEY UPDATE id=id;");
+        // Siapkan dummy data rumah, keluarga & warga
+        await pool.query("INSERT INTO house (id, blok, nomor, alamat, status) VALUES (991, 'A', '991', 'Jl Test', 'pribadi') ON DUPLICATE KEY UPDATE id=id;");
+        const [famRes] = await pool.query("INSERT INTO family (id, no_kk, house_id) VALUES (991, 'KK-TEST-991', 991) ON DUPLICATE KEY UPDATE id=id;");
         const testFamilyId = 991;
 
         const [wargaRes] = await pool.query(`
-            INSERT INTO warga (id, nik, nama, family_id, status_data, status_hidup) 
-            VALUES (991, 'NIK-TEST-991', 'Budi Santoso Test', ?, 'diterima', 'Hidup')
+            INSERT INTO warga (id, nik, nama, family_id, house_id, status_data, status_hidup) 
+            VALUES (991, 'NIK-TEST-991', 'Budi Santoso Test', ?, 991, 'diterima', 'Hidup')
             ON DUPLICATE KEY UPDATE id=id;
         `, [testFamilyId]);
         const testResidentId = 991;
@@ -74,10 +75,10 @@ async function runFinancialTests() {
 
         // Buat akun dummy
         await pool.query(`
-            INSERT INTO acount (id, username, password, role, family_id, resident_id, status)
-            VALUES (991, 'warga_test_991', 'hashpass', 'warga', ?, ?, 'active')
+            INSERT INTO acount (id, username, password, role, family_id, email_encrypted, email_blind_idx)
+            VALUES (991, 'warga_test_991', 'hashpass', 'warga', ?, UNHEX(HEX('dummy_email_encrypted')), 'dummy_blind_idx_test_991')
             ON DUPLICATE KEY UPDATE id=id;
-        `, [testFamilyId, testResidentId]);
+        `, [testFamilyId]);
 
         // -------------------------------------------------------------
         // Test 1: Dynamic Overdue Status
@@ -128,7 +129,7 @@ async function runFinancialTests() {
         await publishBillPeriodService(p2.period.id, 991);
         await publishBillPeriodService(p3.period.id, 991);
 
-        const [userBills] = await pool.query("SELECT * FROM bills WHERE resident_id = ? ORDER BY id ASC;", [testResidentId]);
+        const [userBills] = await pool.query("SELECT * FROM bills WHERE family_id = ? ORDER BY id ASC;", [testFamilyId]);
         assert(userBills.length === 3, "Berhasil menerbitkan 3 tagihan untuk warga uji");
         const billIds = userBills.map(b => b.id);
 
@@ -138,7 +139,7 @@ async function runFinancialTests() {
         console.log("\n4️⃣  Test 3: Validasi Mismatch Nominal Rapel...");
         const mismatchRes = await submitPaymentService({
             billIds: billIds,
-            residentId: testResidentId,
+            familyId: testFamilyId,
             amountStated: 500000, // Seharusnya 600.000 (3 x 200.000)
             channel: 'transfer',
             proofUrl: 'transfer_salah_nominal.jpg',
@@ -152,7 +153,7 @@ async function runFinancialTests() {
         console.log("\n5️⃣  Test 4: Pembayaran Rapel 3 Bulan (Transfer Pending) & Verifikasi Reject...");
         const submitRapelRes = await submitPaymentService({
             billIds: billIds,
-            residentId: testResidentId,
+            familyId: testFamilyId,
             amountStated: 600000, // Sesuai (3 x 200.000)
             channel: 'transfer',
             proofUrl: 'bukti_transfer_rapel_3bulan.jpg',
@@ -171,7 +172,7 @@ async function runFinancialTests() {
         // Cek guard mencegah double pending submit
         const doublePendingRes = await submitPaymentService({
             billIds: [billIds[0]],
-            residentId: testResidentId,
+            familyId: testFamilyId,
             amountStated: 200000,
             channel: 'transfer',
             proofUrl: 'bukti_dobel.jpg',
@@ -200,7 +201,7 @@ async function runFinancialTests() {
         console.log("\n6️⃣  Test 5: Resubmit Rapel & Approval oleh Bendahara...");
         const resubmitRes = await submitPaymentService({
             billIds: billIds,
-            residentId: testResidentId,
+            familyId: testFamilyId,
             amountStated: 600000,
             channel: 'transfer',
             proofUrl: 'bukti_transfer_rapel_valid.jpg',
@@ -235,7 +236,7 @@ async function runFinancialTests() {
         await publishBillPeriodService(p4.period.id, 991);
         await publishBillPeriodService(p5.period.id, 991);
 
-        const [manualTargetBills] = await pool.query("SELECT id FROM bills WHERE resident_id = ? AND bill_period_id IN (?, ?)", [testResidentId, p4.period.id, p5.period.id]);
+        const [manualTargetBills] = await pool.query("SELECT id FROM bills WHERE family_id = ? AND bill_period_id IN (?, ?)", [testFamilyId, p4.period.id, p5.period.id]);
         const manualBillIds = manualTargetBills.map(b => b.id);
 
         const manualIplRes = await recordManualPaymentService({
@@ -256,7 +257,7 @@ async function runFinancialTests() {
         console.log("\n8️⃣  Test 7: Modul Iuran Kas RT (Contribute, Verify Approve & Reject)...");
         // Submit iuran kas
         const kasContributeRes = await submitKasContributionService({
-            residentId: testResidentId,
+            familyId: testFamilyId,
             amount: 75000,
             category: "sosial",
             description: "Santunan Bencana Warga",
@@ -281,7 +282,7 @@ async function runFinancialTests() {
 
         // Submit iuran kas kedua untuk di-reject
         const kasSecondRes = await submitKasContributionService({
-            residentId: testResidentId,
+            familyId: testFamilyId,
             amount: 50000,
             category: "kegiatan",
             description: "Iuran 17-an",

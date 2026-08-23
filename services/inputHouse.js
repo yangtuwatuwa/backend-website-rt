@@ -1,19 +1,6 @@
-import inputHouse, { getHouses } from "../models/houseWarga.js";
-import { encryptEmails, decryptEmails } from "../helpers/ciihper.js";
+import { getHouses } from "../models/houseWarga.js";
+import { decryptEmails } from "../helpers/ciihper.js";
 
-export async function inputWarga (blok, nomor, alamat, status) {
-    try {
-        // Enkripsi data sensitif sebelum masuk ke DB
-        const encryptedBlok   = encryptEmails(blok)
-        const encryptedNomor  = encryptEmails(String(nomor))
-        const encryptedAlamat = encryptEmails(alamat)
-
-        const inputRumahRumahan = await inputHouse(encryptedBlok, encryptedNomor, encryptedAlamat, status)
-        return inputRumahRumahan
-    } catch (error) {
-        return "error salah di inputHouse: " + error
-    }
-}
 
 export async function listRumah() {
     try {
