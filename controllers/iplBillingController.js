@@ -387,15 +387,19 @@ export async function submitPaymentController(req, res) {
         return res.status(403).json({ pesan: "Akses ditolak, hanya Bendahara yang dapat mencatat pembayaran tunai langsung di tempat!" });
     }
 
-    let targetResidentId = null;
+    let targetFamilyId = null;
 
-    // Jika user adalah warga, pastikan terikat KK
+    // Jika user adalah warga, pastikan terikat KK dan kunci ke family_id akun
     if (userRole === "warga") {
         const userData = await getAccountById(userId);
-        const familyId = userData && userData[0] ? userData[0].family_id : null;
-        if (!familyId) {
+        targetFamilyId = userData && userData[0] ? userData[0].family_id : null;
+        if (!targetFamilyId) {
             return res.status(400).json({ pesan: "Akun Anda belum terikat dengan Kartu Keluarga!" });
         }
+    } else {
+        // Jika staf/admin/bendahara, ambil dari body jika ada
+        const { family_id, familyId } = req.body;
+        targetFamilyId = family_id || familyId || null;
     }
 
     const proofUrl = req.file ? req.file.filename : null;
@@ -403,7 +407,7 @@ export async function submitPaymentController(req, res) {
     try {
         const result = await submitPaymentService({
             billIds: parsedBillIds,
-            residentId: targetResidentId,
+            familyId: targetFamilyId,
             amountStated: targetAmount,
             channel: targetChannel,
             proofUrl,

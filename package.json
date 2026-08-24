@@ -7,9 +7,13 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "node test/iplBilling.test.js",
+    "test": "node test/financialModule.test.js",
     "reset-db": "node utils/resetDb.js",
-    "migrate-ipl": "node utils/migrateIplBills.js"
+    "migrate-ipl": "node utils/migrateIplBills.js",
+    "migrate:rapel": "node migrations/20260819_migrate_payments_to_rapel.js",
+    "migrate:family": "node migrations/20260819_migrate_to_family_scope.js",
+    "migrate:notifications": "node migrations/20260819_create_notifications_table.js",
+    "migrate": "node migrations/20260819_migrate_to_family_scope.js"
   },
   "dependencies": {
     "@prisma/client": "^7.8.0",

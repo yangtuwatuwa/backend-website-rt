@@ -14,10 +14,10 @@ async function ensureTables() {
 }
 
 /**
- * Buat entri sumbangan/iuran Kas baru
+ * Buat entri sumbangan/iuran Kas baru (Scope: family_id)
  */
 export async function createKasContribution({
-    residentId,
+    familyId,
     amount,
     category,
     description = "-",
@@ -33,13 +33,13 @@ export async function createKasContribution({
     const client = connection || db;
     const sql = `
         INSERT INTO kas_contributions (
-            resident_id, amount, category, description, channel, proof_url,
+            family_id, amount, category, description, channel, proof_url,
             status, reject_reason, recorded_by, verified_by, verified_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     try {
         const [result] = await client.execute(sql, [
-            residentId,
+            familyId,
             amount,
             category,
             description,
@@ -66,13 +66,13 @@ export async function getKasContributionById(id, connection = null) {
     const client = connection || db;
     const sql = `
         SELECT k.*,
-               w.nama AS resident_name, w.nik AS resident_nik, w.family_id,
                f.no_kk,
+               kk.nama AS resident_name, kk.nik AS resident_nik,
                rec.username AS recorded_by_username,
                ver.username AS verified_by_username
         FROM kas_contributions k
-        JOIN warga w ON k.resident_id = w.id
-        LEFT JOIN family f ON w.family_id = f.id
+        JOIN family f ON k.family_id = f.id
+        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
         LEFT JOIN acount rec ON k.recorded_by = rec.id
         LEFT JOIN acount ver ON k.verified_by = ver.id
         WHERE k.id = ?
@@ -108,12 +108,12 @@ export async function getPendingKasContributions({ limit = 50, offset = 0 } = {}
     await ensureTables();
     const sql = `
         SELECT k.*,
-               w.nama AS resident_name, w.nik AS resident_nik, w.family_id,
                f.no_kk,
+               kk.nama AS resident_name, kk.nik AS resident_nik,
                rec.username AS recorded_by_username
         FROM kas_contributions k
-        JOIN warga w ON k.resident_id = w.id
-        LEFT JOIN family f ON w.family_id = f.id
+        JOIN family f ON k.family_id = f.id
+        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
         LEFT JOIN acount rec ON k.recorded_by = rec.id
         WHERE k.status = 'pending'
         ORDER BY k.created_at ASC
@@ -129,44 +129,20 @@ export async function getPendingKasContributions({ limit = 50, offset = 0 } = {}
 }
 
 /**
- * Ambil riwayat sumbangan kas milik seorang warga (resident_id)
- */
-export async function getKasContributionsByResident(residentId) {
-    await ensureTables();
-    const sql = `
-        SELECT k.*,
-               w.nama AS resident_name,
-               ver.username AS verified_by_username
-        FROM kas_contributions k
-        JOIN warga w ON k.resident_id = w.id
-        LEFT JOIN acount ver ON k.verified_by = ver.id
-        WHERE k.resident_id = ?
-        ORDER BY k.created_at DESC
-    `;
-    try {
-        const [rows] = await db.execute(sql, [residentId]);
-        return rows;
-    } catch (err) {
-        console.error("error getKasContributionsByResident:", err);
-        throw err;
-    }
-}
-
-/**
  * Ambil riwayat sumbangan kas untuk satu Kartu Keluarga (family_id)
  */
 export async function getKasContributionsByFamily(familyId) {
     await ensureTables();
     const sql = `
         SELECT k.*,
-               w.nama AS resident_name, w.family_id,
                f.no_kk,
+               kk.nama AS resident_name,
                ver.username AS verified_by_username
         FROM kas_contributions k
-        JOIN warga w ON k.resident_id = w.id
-        JOIN family f ON w.family_id = f.id
+        JOIN family f ON k.family_id = f.id
+        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
         LEFT JOIN acount ver ON k.verified_by = ver.id
-        WHERE w.family_id = ?
+        WHERE k.family_id = ?
         ORDER BY k.created_at DESC
     `;
     try {
@@ -185,13 +161,13 @@ export async function getKasAuditList({ category, status, channel, limit = 100, 
     await ensureTables();
     let sql = `
         SELECT k.*,
-               w.nama AS resident_name, w.nik AS resident_nik, w.family_id,
                f.no_kk,
+               kk.nama AS resident_name, kk.nik AS resident_nik,
                rec.username AS recorded_by_username,
                ver.username AS verified_by_username
         FROM kas_contributions k
-        JOIN warga w ON k.resident_id = w.id
-        LEFT JOIN family f ON w.family_id = f.id
+        JOIN family f ON k.family_id = f.id
+        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
         LEFT JOIN acount rec ON k.recorded_by = rec.id
         LEFT JOIN acount ver ON k.verified_by = ver.id
         WHERE 1=1

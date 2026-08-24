@@ -1,7 +1,8 @@
-import { inputPengaduan, getPengaduanByFamily, getAllPengaduan, updatePengaduanStatus, deletePengaduan } from "../models/pengaduan.js"
+import { inputPengaduan, getPengaduanById, getPengaduanByFamily, getAllPengaduan, updatePengaduanStatus, deletePengaduan } from "../models/pengaduan.js"
 import { getAccountById } from "../models/login.js"
 import { decryptEmails } from "../helpers/ciihper.js"
 import { maskData } from "../utils/masking.js"
+import { createNotification } from "./notificationService.js"
 
 export async function createPengaduan(userId, isi, jenis_pengaduan) {
     try {
@@ -74,7 +75,28 @@ export async function changePengaduanStatus(id, status, catatan = null) {
     }
 
     try {
+        const pengaduanData = await getPengaduanById(id)
         const hasildbnya = await updatePengaduanStatus(id, status, catatan)
+
+        if (pengaduanData && pengaduanData.family_id) {
+            try {
+                const cleanStatus = status.charAt(0).toUpperCase() + status.slice(1);
+                const descSnippet = pengaduanData.isi ? (pengaduanData.isi.length > 50 ? pengaduanData.isi.substring(0, 50) + "..." : pengaduanData.isi) : "Pengaduan";
+                const notifMsg = `Laporan pengaduan Anda ("${descSnippet}") kini berstatus "${cleanStatus}"${catatan ? `. Catatan: ${catatan}` : ''}.`;
+                
+                await createNotification({
+                    familyId: pengaduanData.family_id,
+                    type: "pengaduan",
+                    title: `Status Pengaduan: ${cleanStatus}`,
+                    message: notifMsg,
+                    referenceType: "report",
+                    referenceId: id
+                });
+            } catch (ne) {
+                console.error("Non-blocking error notifikasi pengaduan:", ne.message);
+            }
+        }
+
         return hasildbnya
     } catch (err) {
         console.log(err)

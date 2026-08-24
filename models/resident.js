@@ -224,10 +224,9 @@ export async function getPopulationStats() {
         const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
         const [paidRows] = await db.execute(`
-            SELECT bp.period_month AS month, COUNT(DISTINCT w.family_id) AS paid_families
+            SELECT bp.period_month AS month, COUNT(DISTINCT b.family_id) AS paid_families
             FROM bills b
             JOIN bill_periods bp ON b.bill_period_id = bp.id
-            JOIN warga w ON b.resident_id = w.id
             WHERE bp.period_year = ? AND b.status = 'paid'
             GROUP BY bp.period_month
         `, [currentYear]);

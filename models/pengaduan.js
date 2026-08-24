@@ -11,6 +11,17 @@ export async function inputPengaduan(familyId, isi, jenis_pengaduan) {
     }
 }
 
+export async function getPengaduanById(id) {
+    const sqlcommand = "SELECT * FROM report WHERE id = ?"
+    try {
+        const [hasilnya] = await db.execute(sqlcommand, [id])
+        return hasilnya[0] || null
+    } catch (err) {
+        console.log("error bagian getPengaduanById: " + err)
+        return null
+    }
+}
+
 export async function getPengaduanByFamily(familyId) {
     const sqlcommand = "SELECT * FROM report WHERE family_id = ?"
     try {

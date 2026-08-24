@@ -12,18 +12,20 @@ import {
     getLedgerList
 } from "../models/financial.js";
 import { getBillsByFamilyId } from "../models/billModel.js";
-import { getPendingPaymentsList } from "../models/paymentModel.js";
+import { getPendingPaymentsList, getPaymentsByFamilyId } from "../models/paymentModel.js";
 import { getPendingKasContributions, getKasContributionsByFamily } from "../models/kasModel.js";
 import { getAccountById } from "../models/login.js";
 import { responseSucces } from "../utils/response.js";
 import { emitSyncEvent } from "../utils/socket.js";
+import fs from "fs";
+import path from "path";
 
 // =========================================================================
 // 👥 CONTROLLER KHUSUS WARGA (/resident)
 // =========================================================================
 
 /**
- * Histori Pembayaran Keluarga (IPL Bills & Kas Contributions)
+ * Histori Pembayaran Keluarga (IPL Bills & Kas Contributions & Payments Submissions)
  * Route: GET /resident/my-payments
  */
 export async function getFamilyPaymentsController(req, res) {
@@ -40,9 +42,16 @@ export async function getFamilyPaymentsController(req, res) {
         }
 
         const iplBills = await getBillsByFamilyId(familyId);
+        const iplPayments = await getPaymentsByFamilyId(familyId);
         const kasHistory = await getKasContributionsByFamily(familyId);
 
-        return responseSucces(200, { ipl: iplBills, kas: kasHistory }, "Histori pembayaran keluarga berhasil diambil", res);
+        return responseSucces(200, { 
+            ipl: iplBills, 
+            ipl_bills: iplBills,
+            ipl_payments: iplPayments,
+            payments: iplPayments,
+            kas: kasHistory 
+        }, "Histori pembayaran keluarga berhasil diambil", res);
     } catch (err) {
         console.error("[Error Get Family Payments]:", err);
         return res.status(500).json({ pesan: "Error di controller getFamilyPaymentsController: " + err.message });
@@ -347,4 +356,25 @@ export async function getDashboardStatsController(req, res) {
         console.error("[Error Get Dashboard Stats]:", err);
         return res.status(500).json({ pesan: "Error di controller getDashboardStatsController: " + err.message });
     }
+}
+
+/**
+ * Mengambil / Menampilkan File Bukti Transfer Pembayaran (Gambar / PDF)
+ * Route: GET /admin/finance/proof/:filename & GET /resident/finance/proof/:filename
+ */
+export async function getPaymentProofFileController(req, res) {
+    const rawFilename = req.params.filename;
+    if (!rawFilename) {
+        return res.status(400).json({ pesan: "Nama file bukti pembayaran wajib disertakan!" });
+    }
+
+    // Sanitasi filename untuk mencegah directory traversal (keamanan server)
+    const safeFilename = path.basename(rawFilename);
+    const filePath = path.resolve("./secure_uploads", safeFilename);
+
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ pesan: "File fisik bukti transfer tidak ditemukan di server!" });
+    }
+
+    return res.sendFile(filePath);
 }

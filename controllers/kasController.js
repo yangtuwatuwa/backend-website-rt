@@ -37,12 +37,10 @@ export async function contributeKasController(req, res) {
             return res.status(400).json({ pesan: "Akun anda belum terikat dengan Kartu Keluarga mana pun" });
         }
 
-        // Cari resident_id warga
-        const residentId = dataUser[0].id; // Fallback jika tidak ada link langsung
         const proofUrl = req.file ? req.file.filename : null;
 
         const result = await submitKasContributionService({
-            residentId,
+            familyId,
             amount: parseFloat(amount),
             category,
             description: description || "-",

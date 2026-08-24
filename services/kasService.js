@@ -4,21 +4,21 @@ import {
     getKasContributionById,
     getKasContributionByIdForUpdate,
     getPendingKasContributions,
-    getKasContributionsByResident,
     getKasContributionsByFamily,
     getKasAuditList,
     updateKasVerification
 } from "../models/kasModel.js";
 import { writeLedgerEntry } from "../models/financial.js";
 import { getAccountById } from "../models/login.js";
+import { createNotification } from "./notificationService.js";
 
 /**
- * 1. Submit Iuran / Sumbangan Kas RT (Warga / Pengurus)
+ * 1. Submit Iuran / Sumbangan Kas RT (Scope: family_id)
  * - Channel 'cash_to_bendahara': Langsung APPROVED & Dicatat ke Buku Kas (financial_ledger)
  * - Channel 'transfer' atau 'cash_to_rt': Status PENDING menunggu approval bendahara
  */
 export async function submitKasContributionService({
-    residentId,
+    familyId,
     amount,
     category,
     description = "-",
@@ -46,6 +46,11 @@ export async function submitKasContributionService({
         return { error: "Bukti transfer (proofUrl/file) wajib diunggah untuk pembayaran transfer!" };
     }
 
+    const cleanFamilyId = Number(familyId);
+    if (!cleanFamilyId || cleanFamilyId <= 0) {
+        return { error: "Kartu Keluarga (familyId) wajib disertakan!" };
+    }
+
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
@@ -56,7 +61,7 @@ export async function submitKasContributionService({
         if (channel === 'cash_to_bendahara') {
             // Tunai langsung diterima Bendahara -> Approved & Catat ke Ledger
             const insertResult = await createKasContribution({
-                residentId,
+                familyId: cleanFamilyId,
                 amount: cleanAmount,
                 category: cleanCategory,
                 description: cleanDesc,
@@ -68,7 +73,7 @@ export async function submitKasContributionService({
                 verifiedAt: now
             }, connection);
 
-            const ledgerDesc = `Iuran Kas [${cleanCategory.toUpperCase()}] - ${cleanDesc} (Warga ID ${residentId})`;
+            const ledgerDesc = `Iuran Kas [${cleanCategory.toUpperCase()}] - ${cleanDesc} (KK ID ${cleanFamilyId})`;
             await writeLedgerEntry({
                 type: 'in',
                 amount: cleanAmount,
@@ -87,7 +92,7 @@ export async function submitKasContributionService({
         } else {
             // Transfer atau Cash via RT -> Pending verifikasi Bendahara
             const insertResult = await createKasContribution({
-                residentId,
+                familyId: cleanFamilyId,
                 amount: cleanAmount,
                 category: cleanCategory,
                 description: cleanDesc,
@@ -154,7 +159,7 @@ export async function verifyKasContributionService({ contributionId, decision, a
             }, connection);
 
             // Tulis entri ke Buku Kas RT (financial_ledger)
-            const ledgerDesc = `Iuran Kas [${contribution.category.toUpperCase()}] - ${contribution.description || '-'} (Warga ID ${contribution.resident_id})`;
+            const ledgerDesc = `Iuran Kas [${contribution.category.toUpperCase()}] - ${contribution.description || '-'} (KK ID ${contribution.family_id})`;
             await writeLedgerEntry({
                 type: 'in',
                 amount: contribution.amount,
@@ -164,6 +169,20 @@ export async function verifyKasContributionService({ contributionId, decision, a
             });
 
             await connection.commit();
+
+            // Notifikasi persetujuan iuran kas
+            try {
+                await createNotification({
+                    familyId: contribution.family_id,
+                    type: "kas",
+                    title: "Iuran Kas Disetujui",
+                    message: `Iuran Kas [${contribution.category.toUpperCase()}] Anda sebesar Rp ${Number(contribution.amount).toLocaleString('id-ID')} telah diverifikasi dan disetujui. Terima kasih!`,
+                    referenceType: "kas_contribution",
+                    referenceId: contributionId
+                });
+            } catch (ne) {
+                console.error("Non-blocking error notifikasi approve kas:", ne.message);
+            }
 
             return {
                 message: "Iuran kas berhasil disetujui (Approved). Transaksi tercatat di Buku Kas.",
@@ -180,6 +199,20 @@ export async function verifyKasContributionService({ contributionId, decision, a
             }, connection);
 
             await connection.commit();
+
+            // Notifikasi penolakan iuran kas dengan rejectReason
+            try {
+                await createNotification({
+                    familyId: contribution.family_id,
+                    type: "kas",
+                    title: "Iuran Kas Ditolak",
+                    message: `Iuran Kas [${contribution.category.toUpperCase()}] Anda sebesar Rp ${Number(contribution.amount).toLocaleString('id-ID')} ditolak. Alasan: ${rejectReason.trim()}`,
+                    referenceType: "kas_contribution",
+                    referenceId: contributionId
+                });
+            } catch (ne) {
+                console.error("Non-blocking error notifikasi reject kas:", ne.message);
+            }
 
             return {
                 message: "Iuran kas telah ditolak (Rejected).",

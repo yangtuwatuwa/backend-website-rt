@@ -1,7 +1,8 @@
-import { inputPengajuan, getPengajuanByFamily, getAllPengajuan, updatePengajuanStatus, updatePengajuanArchivedStatus } from "../models/pengajuan.js"
+import { inputPengajuan, getPengajuanById, getPengajuanByFamily, getAllPengajuan, updatePengajuanStatus, updatePengajuanArchivedStatus } from "../models/pengajuan.js"
 import { getAccountById } from "../models/login.js"
 import { decryptEmails } from "../helpers/ciihper.js"
 import { maskData } from "../utils/masking.js"
+import { createNotification } from "./notificationService.js"
 
 export async function createPengajuan(userId, keperluan, jenis) {
     try {
@@ -86,7 +87,28 @@ export async function changePengajuanStatus(id, status) {
     }
 
     try {
+        const suratData = await getPengajuanById(id)
         const hasildbnya = await updatePengajuanStatus(id, status)
+
+        if (suratData && suratData.family_id) {
+            try {
+                const cleanStatus = status.charAt(0).toUpperCase() + status.slice(1);
+                const jenisSurat = suratData.jenis || "Surat Pengantar";
+                const notifMsg = `Pengajuan surat Anda (${jenisSurat}) kini berstatus "${cleanStatus}".`;
+
+                await createNotification({
+                    familyId: suratData.family_id,
+                    type: "surat",
+                    title: `Status Pengajuan Surat: ${cleanStatus}`,
+                    message: notifMsg,
+                    referenceType: "letter",
+                    referenceId: id
+                });
+            } catch (ne) {
+                console.error("Non-blocking error notifikasi pengajuan surat:", ne.message);
+            }
+        }
+
         return hasildbnya
     } catch (err) {
         console.log(err)

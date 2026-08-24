@@ -53,7 +53,7 @@ router.get("/announcement", jwtAuth, getAnnouncementsController)
 router.get("/agenda", jwtAuth, getAgendasController)
 
 // Route Keuangan / Pembayaran Warga Mandiri
-import { getFamilyPaymentsController } from "../controllers/financeController.js"
+import { getFamilyPaymentsController, getPaymentProofFileController } from "../controllers/financeController.js"
 import { idempotencyMiddleware } from "../middlewares/idempotency.js"
 import { createPaymentSessionController, checkPaymentStatusController } from "../controllers/paymentGatewayController.js"
 import { getMyBillsController, getBillDetailController, submitPaymentController } from "../controllers/iplBillingController.js"
@@ -72,6 +72,7 @@ router.get("/kas/history", jwtAuth, getMyKasContributionsController)
 router.get("/my-payments", jwtAuth, getFamilyPaymentsController)
 router.post("/payment-gateway/checkout", jwtAuth, idempotencyMiddleware(), createPaymentSessionController)
 router.get("/payment-gateway/status/:orderId", jwtAuth, checkPaymentStatusController)
+router.get("/finance/proof/:filename", jwtAuth, getPaymentProofFileController)
 
 
 // Route Vote Karyawan Terbaik
@@ -84,5 +85,17 @@ router.get("/vote/results", jwtAuth, getVoteResultsController)
 import { getTemplateSuratListController, downloadTemplateSuratController } from "../controllers/templateSuratController.js"
 router.get("/template-surat", jwtAuth, getTemplateSuratListController)
 router.get("/template-surat/download/:id", jwtAuth, downloadTemplateSuratController)
+
+// Route Notifikasi Warga In-App
+import {
+    getMyNotificationsController,
+    getUnreadNotificationCountController,
+    markNotificationReadController,
+    markAllNotificationsReadController
+} from "../controllers/notificationController.js"
+router.get("/notifications", jwtAuth, getMyNotificationsController)
+router.get("/notifications/unread-count", jwtAuth, getUnreadNotificationCountController)
+router.patch("/notifications/read-all", jwtAuth, markAllNotificationsReadController)
+router.patch("/notifications/:id/read", jwtAuth, markNotificationReadController)
 
 export default router

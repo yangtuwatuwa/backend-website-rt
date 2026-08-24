@@ -147,10 +147,7 @@ export async function getArrearsTracking(month, year) {
         FROM family f
         LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN bill_periods bp ON bp.period_month = ? AND bp.period_year = ?
-        LEFT JOIN bills b ON b.bill_period_id = bp.id AND (
-            b.resident_id = f.kepala_keluarga_id 
-            OR b.resident_id = (SELECT w3.id FROM warga w3 WHERE w3.family_id = f.id ORDER BY w3.id ASC LIMIT 1)
-        )
+        LEFT JOIN bills b ON b.bill_period_id = bp.id AND b.family_id = f.id
         LEFT JOIN (
             SELECT pbl.bill_id, p1.id, p1.status, p1.channel, p1.created_at
             FROM payment_bill_links pbl

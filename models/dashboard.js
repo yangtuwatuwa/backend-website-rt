@@ -55,8 +55,8 @@ export async function getDashboardSummary() {
                 (SELECT COUNT(id) FROM surat_keluar) AS total_surat_keluar,
 
                 -- Kepatuhan IPL
-                (SELECT COUNT(DISTINCT w.family_id) FROM bills b JOIN bill_periods bp ON b.bill_period_id = bp.id JOIN warga w ON b.resident_id = w.id WHERE bp.period_year = ? AND b.status = 'paid') AS ipl_lunas_tahun_ini,
-                (SELECT COUNT(DISTINCT w.family_id) FROM bills b JOIN bill_periods bp ON b.bill_period_id = bp.id JOIN warga w ON b.resident_id = w.id WHERE bp.period_year = ? AND bp.period_month = ? AND b.status = 'paid') AS ipl_lunas_bulan_ini
+                (SELECT COUNT(DISTINCT b.family_id) FROM bills b JOIN bill_periods bp ON b.bill_period_id = bp.id WHERE bp.period_year = ? AND b.status = 'paid') AS ipl_lunas_tahun_ini,
+                (SELECT COUNT(DISTINCT b.family_id) FROM bills b JOIN bill_periods bp ON b.bill_period_id = bp.id WHERE bp.period_year = ? AND bp.period_month = ? AND b.status = 'paid') AS ipl_lunas_bulan_ini
         `, [currentYear, currentYear, currentMonth])
 
         return rows[0]

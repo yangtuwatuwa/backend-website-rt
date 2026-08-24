@@ -10,7 +10,6 @@ import {
     createBatchBills,
     getBillById,
     getBillsByIdsForUpdate,
-    getBillsByResident,
     getBillsByFamilyId,
     getBillsByPeriodId,
     updateBillStatus,
@@ -33,6 +32,7 @@ import {
 } from "../models/paymentModel.js";
 import { writeLedgerEntry } from "../models/financial.js";
 import { getAccountById } from "../models/login.js";
+import { createNotification, createBroadcastFamilyNotifications } from "./notificationService.js";
 
 /**
  * 1. Membuat Periode Tagihan Baru (Draft)
@@ -116,8 +116,9 @@ export async function getBillPeriodDetailService(id) {
 }
 
 /**
- * 3. Publish Periode Tagihan — Generate Snapshot Bills untuk Seluruh Warga Aktif
- * Idempotent: jika sudah dipublish, tidak akan double-generate tagihan.
+ * 3. Publish Periode Tagihan — Generate Snapshot Bills untuk Seluruh KELUARGA (family) Aktif
+ * 1 Keluarga (KK) = Tepat 1 Bill per Bill Period
+ * Idempotent: Dilindungi UNIQUE(bill_period_id, family_id)
  */
 export async function publishBillPeriodService(billPeriodId, actorId) {
     const connection = await pool.getConnection();
@@ -140,24 +141,29 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
             return { error: "Periode tagihan ini sudah pernah dipublish sebelumnya!" };
         }
 
-        // 2. Ambil seluruh warga aktif (warga yang berstatus data diterima dan hidup)
-        const [activeResidents] = await connection.execute(`
-            SELECT w.id AS resident_id, w.nama, w.family_id
-            FROM warga w
-            WHERE (w.status_data = 'diterima' OR w.status_data IS NULL)
-              AND (w.status_hidup = 'Hidup' OR w.status_hidup IS NULL)
-            ORDER BY w.id ASC
+        // 2. Ambil seluruh keluarga aktif (KK yang memiliki anggota keluarga berstatus data diterima dan hidup)
+        const [activeFamilies] = await connection.execute(`
+            SELECT DISTINCT f.id AS family_id, f.no_kk, f.kepala_keluarga_id, kk.nama AS kepala_keluarga_nama
+            FROM family f
+            LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
+            WHERE EXISTS (
+                SELECT 1 FROM warga w 
+                WHERE w.family_id = f.id 
+                  AND (w.status_data = 'diterima' OR w.status_data IS NULL)
+                  AND (w.status_hidup = 'Hidup' OR w.status_hidup IS NULL)
+            )
+            ORDER BY f.id ASC
         `);
 
-        if (!activeResidents || activeResidents.length === 0) {
+        if (!activeFamilies || activeFamilies.length === 0) {
             await connection.rollback();
-            return { error: "Tidak ada warga aktif yang ditemukan untuk diterbitkan tagihan!" };
+            return { error: "Tidak ada keluarga aktif yang ditemukan untuk diterbitkan tagihan!" };
         }
 
-        // 3. Siapkan data batch bills (snapshot amount & due_date)
-        const billsToInsert = activeResidents.map(r => ({
+        // 3. Siapkan data batch bills (snapshot amount & due_date per KELUARGA)
+        const billsToInsert = activeFamilies.map(f => ({
             bill_period_id: period.id,
-            resident_id: r.resident_id,
+            family_id: f.family_id,
             amount: period.default_amount,
             due_date: period.due_date,
             status: 'unpaid'
@@ -171,11 +177,26 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
 
         await connection.commit();
 
+        // Kirim notifikasi in-app ke seluruh keluarga aktif yang diterbitkan tagihan
+        try {
+            const familyIds = activeFamilies.map(f => f.family_id);
+            await createBroadcastFamilyNotifications({
+                familyIds,
+                type: "ipl",
+                title: `Tagihan IPL Baru: ${period.title}`,
+                message: `Tagihan IPL untuk periode "${period.title}" sebesar Rp ${Number(period.default_amount).toLocaleString('id-ID')} telah diterbitkan. Jatuh tempo: ${period.due_date}.`,
+                referenceType: "bill_period",
+                referenceId: period.id
+            });
+        } catch (notifErr) {
+            console.error("Non-blocking error notifikasi publish IPL:", notifErr.message);
+        }
+
         const summary = await getBillsSummaryByPeriodId(period.id);
         return {
-            message: `Tagihan "${period.title}" berhasil dipublish untuk ${activeResidents.length} warga aktif!`,
+            message: `Tagihan "${period.title}" berhasil dipublish untuk ${activeFamilies.length} keluarga aktif!`,
             period_id: period.id,
-            total_bills_generated: activeResidents.length,
+            total_bills_generated: activeFamilies.length,
             summary
         };
     } catch (err) {
@@ -190,7 +211,7 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
 /**
  * 4. Submit Pembayaran IPL — Mendukung Single & Rapel (Banyak Bulan Sekaligus)
  * - Menerima billIds (array ID tagihan)
- * - Validasi kepemilikan tagihan (semua bill harus milik warga/keluarga yang sama)
+ * - Validasi kepemilikan tagihan: seluruh bill harus milik familyId akun yang login
  * - Validasi kesesuaian total: SUM(bill.amount) === amountStated
  * - Validasi tidak ada bill yang sudah 'paid', 'exempt', atau sedang 'pending' di payment lain
  * - Channel 'cash_to_bendahara': Langsung APPROVED, Bills PAID, Tulis ke Buku Kas Ledger
@@ -199,7 +220,8 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
 export async function submitPaymentService({
     billIds,
     billId, // Fallback jika single id dikirim
-    residentId,
+    familyId, // ID Keluarga pembayar
+    residentId, // Backward-compatibility fallback
     amountStated,
     channel,
     proofUrl = null,
@@ -255,12 +277,17 @@ export async function submitPaymentService({
             return { error: "Satu atau lebih tagihan yang dipilih tidak ditemukan di database!" };
         }
 
-        // 2. Validasi kepemilikan tagihan (semua tagihan harus milik KK / warga yang sama)
+        // 2. Validasi kepemilikan tagihan (semua tagihan harus milik KK yang sama)
         const primaryFamilyId = bills[0].family_id;
-        const primaryResidentId = bills[0].resident_id;
+        const targetFamilyId = Number(familyId || primaryFamilyId);
 
         for (const b of bills) {
-            if (primaryFamilyId && b.family_id && String(b.family_id) !== String(primaryFamilyId)) {
+            // Validasi cross-family: tagihan harus milik familyId yang login
+            if (familyId && String(b.family_id) !== String(targetFamilyId)) {
+                await connection.rollback();
+                return { error: "Akses ditolak: Satu atau lebih tagihan yang dipilih bukan milik keluarga Anda!" };
+            }
+            if (primaryFamilyId && String(b.family_id) !== String(primaryFamilyId)) {
                 await connection.rollback();
                 return { error: "Seluruh tagihan yang dirapel harus milik keluarga / KK yang sama!" };
             }
@@ -290,7 +317,6 @@ export async function submitPaymentService({
             };
         }
 
-        const targetResidentId = residentId || primaryResidentId;
         const billAllocations = bills.map(b => ({
             billId: b.id,
             allocatedAmount: parseFloat(b.amount)
@@ -301,7 +327,7 @@ export async function submitPaymentService({
             // Tunai langsung diterima bendahara -> otomatis approved & paid
             const now = new Date();
             const payResult = await createPaymentWithLinks({
-                residentId: targetResidentId,
+                familyId: targetFamilyId,
                 totalAmount,
                 channel,
                 proofUrl: proofUrl || 'cash_in_hand',
@@ -317,7 +343,7 @@ export async function submitPaymentService({
 
             // Catat ke Buku Kas RT (financial_ledger)
             const periodTitles = bills.map(b => b.period_title || `#${b.id}`).join(", ");
-            const ledgerDesc = `Pembayaran IPL Tunai Bendahara [${periodTitles}] (Warga ID ${targetResidentId})`;
+            const ledgerDesc = `Pembayaran IPL Tunai Bendahara [${periodTitles}] (KK ID ${targetFamilyId})`;
             await writeLedgerEntry({
                 type: 'in',
                 amount: totalAmount,
@@ -338,7 +364,7 @@ export async function submitPaymentService({
         } else {
             // Transfer atau Cash via RT -> Masuk antrean pending verifikasi bendahara
             const payResult = await createPaymentWithLinks({
-                residentId: targetResidentId,
+                familyId: targetFamilyId,
                 totalAmount,
                 channel,
                 proofUrl,
@@ -371,11 +397,6 @@ export async function submitPaymentService({
 
 /**
  * 5. Verifikasi Pembayaran IPL oleh Bendahara (Approve / Reject)
- * - Menerima decision: 'approved' | 'rejected'
- * - Dilindungi Transaction + Pessimistic Lock (FOR UPDATE)
- * - Validasi saat Approve: loop semua payment_bill_links, cek allocated_amount == bill.amount.
- *   Jika mismatch pada salah satu tagihan, SELURUH payment di-reject secara otomatis.
- * - Saat Reject: seluruh bills yang terhubung otomatis dikembalikan ke status 'unpaid'.
  */
 export async function verifyPaymentService({ paymentId, decision, actorId, rejectReason = null }) {
     const validDecisions = ['approved', 'rejected'];
@@ -417,7 +438,6 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
 
         if (decision === 'approved') {
             // Guard & Validasi Wajib:
-            // Loop semua payment_bill_links, untuk tiap bill cek allocated_amount == bill.amount
             let hasMismatch = false;
             for (const link of links) {
                 const targetBill = billMap.get(link.bill_id);
@@ -450,6 +470,20 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
 
                 await connection.commit();
 
+                // Notifikasi in-app penolakan otomatis
+                try {
+                    await createNotification({
+                        familyId: payment.family_id,
+                        type: "ipl",
+                        title: "Pembayaran IPL Ditolak",
+                        message: `Pembayaran IPL Anda sebesar Rp ${Number(payment.total_amount).toLocaleString('id-ID')} ditolak otomatis karena nominal tidak sesuai pada salah satu tagihan.`,
+                        referenceType: "payment",
+                        referenceId: paymentId
+                    });
+                } catch (ne) {
+                    console.error("Non-blocking error notifikasi auto-reject IPL:", ne.message);
+                }
+
                 return {
                     message: "Pembayaran otomatis ditolak karena nominal tidak sesuai pada salah satu tagihan.",
                     payment_id: paymentId,
@@ -472,7 +506,7 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
 
             // 3. Catat pemasukan ke Buku Kas RT (financial_ledger)
             const periodTitles = links.map(l => l.period_title || `#${l.bill_id}`).join(", ");
-            const ledgerDesc = `Pembayaran IPL Terverifikasi [${periodTitles}] (Warga ID ${payment.resident_id})`;
+            const ledgerDesc = `Pembayaran IPL Terverifikasi [${periodTitles}] (KK ID ${payment.family_id})`;
             await writeLedgerEntry({
                 type: 'in',
                 amount: payment.total_amount,
@@ -483,6 +517,20 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
 
             await connection.commit();
 
+            // Notifikasi in-app persetujuan pembayaran Lunas
+            try {
+                await createNotification({
+                    familyId: payment.family_id,
+                    type: "ipl",
+                    title: "Pembayaran IPL Disetujui (Lunas)",
+                    message: `Pembayaran IPL Anda sebesar Rp ${Number(payment.total_amount).toLocaleString('id-ID')} untuk tagihan [${periodTitles}] telah disetujui (Lunas). Terima kasih!`,
+                    referenceType: "payment",
+                    referenceId: paymentId
+                });
+            } catch (ne) {
+                console.error("Non-blocking error notifikasi approve IPL:", ne.message);
+            }
+
             return {
                 message: `Pembayaran ${billIds.length} tagihan berhasil disetujui (Approved). Status tagihan kini LUNAS.`,
                 payment_id: paymentId,
@@ -491,7 +539,6 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
             };
         } else {
             // Keputusan REJECTED
-            // 1. Update status payment menjadi 'rejected' dengan alasan
             await updatePaymentVerification(paymentId, {
                 status: 'rejected',
                 rejectReason: rejectReason.trim(),
@@ -499,10 +546,24 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
                 verifiedAt: now
             }, connection);
 
-            // 2. Kembalikan seluruh bills terkait ke 'unpaid'
+            // Kembalikan seluruh bills terkait ke 'unpaid'
             await updateMultipleBillStatus(billIds, 'unpaid', connection);
 
             await connection.commit();
+
+            // ⭐ PRIORITAS: Notifikasi in-app penolakan pembayaran IPL dengan rejectReason
+            try {
+                await createNotification({
+                    familyId: payment.family_id,
+                    type: "ipl",
+                    title: "Pembayaran IPL Ditolak",
+                    message: `Pembayaran IPL Anda sebesar Rp ${Number(payment.total_amount).toLocaleString('id-ID')} ditolak oleh Bendahara. Alasan: ${rejectReason.trim()}`,
+                    referenceType: "payment",
+                    referenceId: paymentId
+                });
+            } catch (ne) {
+                console.error("Non-blocking error notifikasi reject IPL:", ne.message);
+            }
 
             return {
                 message: "Pembayaran telah ditolak (Rejected). Status seluruh tagihan kembali UNPAID.",
@@ -572,7 +633,7 @@ export async function getPeriodSummaryService(billPeriodId) {
 }
 
 /**
- * 8. Mengambil Daftar Tagihan Warga Sendiri (Family-Gate)
+ * 8. Mengambil Daftar Tagihan Keluarga Sendiri (Family-Gate)
  */
 export async function getMyBillsService(userId, filters = {}) {
     try {

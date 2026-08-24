@@ -18,6 +18,7 @@ async function resetDatabase() {
         "karyawan",
         "kas_contributions",
         "letter",
+        "notifications",
         "otp_codes",
         "payment",
         "payments",

@@ -13,7 +13,8 @@ import {
     getFinancialSettingsController,
     getArrearsTrackingController,
     getFinancialSummaryController,
-    getDashboardStatsController
+    getDashboardStatsController,
+    getPaymentProofFileController
 } from "../controllers/financeController.js"
 import {
     verifyKasContributionController,
@@ -172,6 +173,9 @@ app.get("/finance/ipl-payments/audit", checkRoles('rt', 'bendahara', 'sekretaris
 app.get("/finance/kas-contributions/pending", checkRoles('bendahara', 'rt', 'superadmin', 'admin'), getPendingKasContributionsController)
 app.patch("/finance/kas-contributions/:id/verify", checkRoles('bendahara', 'superadmin', 'admin'), verifyKasContributionController)
 app.get("/finance/kas-contributions/audit", checkRoles('rt', 'bendahara', 'sekretaris', 'superadmin', 'admin'), getKasAuditController)
+
+// Route Download / Tampilkan Bukti Transfer Pembayaran (IPL & Kas)
+app.get("/finance/proof/:filename", checkRoles('rt', 'bendahara', 'sekretaris', 'superadmin', 'admin'), getPaymentProofFileController)
 
 
 // Route Kelola Petugas Voting (Karyawan)

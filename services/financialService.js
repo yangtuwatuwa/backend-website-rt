@@ -155,19 +155,17 @@ export async function recordManualPaymentService({
 }) {
     try {
         const isIpl = (jenisIuran === "ipl" || jenisIuran === "kebersihan" || jenisIuran === "iuran_ipl");
-        
-        // Cari resident dari KK
-        const [wargaRows] = await pool.execute(
-            "SELECT id FROM warga WHERE family_id = ? ORDER BY id ASC LIMIT 1",
-            [familyId]
-        );
-        const residentId = wargaRows.length > 0 ? wargaRows[0].id : null;
+        const cleanFamilyId = Number(familyId);
+
+        if (!cleanFamilyId || cleanFamilyId <= 0) {
+            return "error: Kartu Keluarga (familyId) wajib dipilih!";
+        }
 
         if (isIpl) {
             let targetBillIds = Array.isArray(billIds) ? billIds.filter(id => Boolean(id)) : [];
 
             // Jika billIds tidak disertakan, cari bill aktif berdasarkan month & year
-            if (targetBillIds.length === 0 && (month || year) && residentId) {
+            if (targetBillIds.length === 0 && (month || year)) {
                 const targetMonth = Number(month || new Date().getMonth() + 1);
                 const targetYear = Number(year || new Date().getFullYear());
 
@@ -175,10 +173,10 @@ export async function recordManualPaymentService({
                     SELECT b.id, b.amount 
                     FROM bills b
                     JOIN bill_periods bp ON b.bill_period_id = bp.id
-                    WHERE (b.resident_id = ? OR b.resident_id IN (SELECT w.id FROM warga w WHERE w.family_id = ?))
+                    WHERE b.family_id = ?
                       AND bp.period_month = ? AND bp.period_year = ?
                     LIMIT 1
-                `, [residentId, familyId, targetMonth, targetYear]);
+                `, [cleanFamilyId, targetMonth, targetYear]);
 
                 if (foundBills.length > 0) {
                     targetBillIds = [foundBills[0].id];
@@ -191,7 +189,7 @@ export async function recordManualPaymentService({
 
             const paymentResult = await submitPaymentService({
                 billIds: targetBillIds,
-                residentId: residentId || 1,
+                familyId: cleanFamilyId,
                 amountStated: amount,
                 channel: "cash_to_bendahara",
                 proofUrl: "manual_cash_recorded",
@@ -209,15 +207,11 @@ export async function recordManualPaymentService({
             };
         } else {
             // Jalur Iuran Kas
-            if (!residentId) {
-                return "error: Data warga dalam Kartu Keluarga tersebut tidak ditemukan!";
-            }
-
             const kasResult = await submitKasContributionService({
-                residentId,
+                familyId: cleanFamilyId,
                 amount,
                 category: category || "sosial",
-                description: description || `Pencatatan Kas RT Manual KK ID ${familyId}`,
+                description: description || `Pencatatan Kas RT Manual KK ID ${cleanFamilyId}`,
                 channel: "cash_to_bendahara",
                 proofUrl: "manual_cash_recorded",
                 recordedBy

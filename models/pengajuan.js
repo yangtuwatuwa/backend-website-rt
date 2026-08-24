@@ -37,6 +37,18 @@ export async function inputPengajuan(familyId, keperluan, jenis) {
     }
 }
 
+export async function getPengajuanById(id) {
+    await ensureIsArchivedColumnExists()
+    const sqlcommand = "SELECT * FROM letter WHERE id = ?"
+    try {
+        const [hasilnya] = await db.execute(sqlcommand, [id])
+        return hasilnya[0] || null
+    } catch (err) {
+        console.log("error bagian getPengajuanById: " + err)
+        return null
+    }
+}
+
 export async function getPengajuanByFamily(familyId) {
     await ensureIsArchivedColumnExists()
     const sqlcommand = "SELECT * FROM letter WHERE family_id = ? ORDER BY id DESC"

@@ -14,6 +14,8 @@ import masuk from "./middlewares/reqmasuk.js"
 import { startNotificationScheduler } from "./services/notificationScheduler.js"
 import { initSocket } from "./utils/socket.js"
 
+import accountRoutes from "./routes/account.js"
+
 dotenv.config()
 const app = express()
 const port = 3333
@@ -37,6 +39,7 @@ app.use("/auth", authRoutes)
 app.use("/post", postRoutes)
 app.use("/admin", datasensi)
 app.use("/resident", userAccesRoutes)
+app.use("/account", accountRoutes)
 
 // Inisialisasi scheduler reminder otomatis tagihan IPL
 startNotificationScheduler()
