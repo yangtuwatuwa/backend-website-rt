@@ -19,6 +19,7 @@ async function ensureTables() {
  */
 export async function createPaymentWithLinks({
     familyId,
+    residentId, // Fallback parameter
     totalAmount,
     channel,
     proofUrl = null,
@@ -31,6 +32,7 @@ export async function createPaymentWithLinks({
 }, connection = null) {
     await ensureTables();
     const client = connection || db;
+    const targetFamilyId = familyId || residentId;
 
     // 1. Insert header payments
     const sqlPayment = `
@@ -40,7 +42,7 @@ export async function createPaymentWithLinks({
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const [payResult] = await client.execute(sqlPayment, [
-        familyId,
+        targetFamilyId,
         totalAmount,
         channel,
         proofUrl,
@@ -74,15 +76,20 @@ export async function createPaymentWithLinks({
 export async function getPaymentById(id, connection = null) {
     await ensureTables();
     const client = connection || db;
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
         SELECT p.*,
                f.no_kk,
-               kk.nama AS resident_name, kk.nik AS resident_nik,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                rec.username AS recorded_by_username,
                ver.username AS verified_by_username
         FROM payments p
         JOIN family f ON p.family_id = f.id
-        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN acount rec ON p.recorded_by = rec.id
         LEFT JOIN acount ver ON p.verified_by = ver.id
         WHERE p.id = ?
@@ -218,14 +225,19 @@ export async function getPaymentsByBillId(billId) {
  */
 export async function getPendingPaymentsList({ limit = 50, offset = 0 } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
         SELECT p.*,
                f.no_kk,
-               kk.nama AS resident_name, kk.nik AS resident_nik,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                rec.username AS recorded_by_username
         FROM payments p
         JOIN family f ON p.family_id = f.id
-        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN acount rec ON p.recorded_by = rec.id
         WHERE p.status = 'pending'
         ORDER BY p.created_at ASC
@@ -250,15 +262,20 @@ export async function getPendingPaymentsList({ limit = 50, offset = 0 } = {}) {
  */
 export async function getPaymentAuditList({ limit = 100, offset = 0, channel, status, billPeriodId } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     let sql = `
         SELECT DISTINCT p.*,
                f.no_kk,
-               kk.nama AS resident_name, kk.nik AS resident_nik,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                rec.username AS recorded_by_username,
                ver.username AS verified_by_username
         FROM payments p
         JOIN family f ON p.family_id = f.id
-        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN acount rec ON p.recorded_by = rec.id
         LEFT JOIN acount ver ON p.verified_by = ver.id
         LEFT JOIN payment_bill_links pbl ON p.id = pbl.payment_id

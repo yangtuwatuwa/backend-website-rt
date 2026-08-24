@@ -19,6 +19,7 @@ import { createNotification } from "./notificationService.js";
  */
 export async function submitKasContributionService({
     familyId,
+    residentId, // Fallback parameter
     amount,
     category,
     description = "-",
@@ -26,6 +27,7 @@ export async function submitKasContributionService({
     proofUrl = null,
     recordedBy = null
 }) {
+    const targetFamilyId = familyId || residentId;
     const validCategories = ['kematian', 'sosial', 'kegiatan', 'lainnya'];
     const cleanCategory = String(category || "").toLowerCase().trim();
     if (!validCategories.includes(cleanCategory)) {
@@ -61,7 +63,7 @@ export async function submitKasContributionService({
         if (channel === 'cash_to_bendahara') {
             // Tunai langsung diterima Bendahara -> Approved & Catat ke Ledger
             const insertResult = await createKasContribution({
-                familyId: cleanFamilyId,
+                familyId: targetFamilyId,
                 amount: cleanAmount,
                 category: cleanCategory,
                 description: cleanDesc,
@@ -73,7 +75,7 @@ export async function submitKasContributionService({
                 verifiedAt: now
             }, connection);
 
-            const ledgerDesc = `Iuran Kas [${cleanCategory.toUpperCase()}] - ${cleanDesc} (KK ID ${cleanFamilyId})`;
+            const ledgerDesc = `Iuran Kas [${cleanCategory.toUpperCase()}] - ${cleanDesc} (KK ID ${targetFamilyId})`;
             await writeLedgerEntry({
                 type: 'in',
                 amount: cleanAmount,
@@ -92,7 +94,7 @@ export async function submitKasContributionService({
         } else {
             // Transfer atau Cash via RT -> Pending verifikasi Bendahara
             const insertResult = await createKasContribution({
-                familyId: cleanFamilyId,
+                familyId: targetFamilyId,
                 amount: cleanAmount,
                 category: cleanCategory,
                 description: cleanDesc,

@@ -9,6 +9,8 @@ import {
     getMonthlyFinancialSummary
 } from "../models/financial.js";
 import { getWargas } from "../models/inputwarganya.js";
+import { decryptEmails } from "../helpers/ciihper.js";
+import { maskData } from "../utils/masking.js";
 import { submitPaymentService } from "./iplBillingService.js";
 import { submitKasContributionService } from "./kasService.js";
 import pool from "../config/sqlconfig.js";
@@ -128,7 +130,16 @@ export async function getDashboardStatsService() {
 export async function getTrackingService(month, year) {
     try {
         const result = await getArrearsTracking(month, year);
-        return result;
+        if (!Array.isArray(result)) {
+            return result;
+        }
+        return result.map(item => {
+            const decNoKk = decryptEmails(item.no_kk);
+            return {
+                ...item,
+                no_kk: decNoKk ? maskData(decNoKk) : null
+            };
+        });
     } catch (err) {
         console.error("error getTrackingService:", err);
         return "error getTrackingService: " + err.message;
@@ -155,17 +166,12 @@ export async function recordManualPaymentService({
 }) {
     try {
         const isIpl = (jenisIuran === "ipl" || jenisIuran === "kebersihan" || jenisIuran === "iuran_ipl");
-        const cleanFamilyId = Number(familyId);
-
-        if (!cleanFamilyId || cleanFamilyId <= 0) {
-            return "error: Kartu Keluarga (familyId) wajib dipilih!";
-        }
 
         if (isIpl) {
             let targetBillIds = Array.isArray(billIds) ? billIds.filter(id => Boolean(id)) : [];
 
             // Jika billIds tidak disertakan, cari bill aktif berdasarkan month & year
-            if (targetBillIds.length === 0 && (month || year)) {
+            if (targetBillIds.length === 0 && (month || year) && familyId) {
                 const targetMonth = Number(month || new Date().getMonth() + 1);
                 const targetYear = Number(year || new Date().getFullYear());
 
@@ -176,7 +182,7 @@ export async function recordManualPaymentService({
                     WHERE b.family_id = ?
                       AND bp.period_month = ? AND bp.period_year = ?
                     LIMIT 1
-                `, [cleanFamilyId, targetMonth, targetYear]);
+                `, [familyId, targetMonth, targetYear]);
 
                 if (foundBills.length > 0) {
                     targetBillIds = [foundBills[0].id];
@@ -189,7 +195,7 @@ export async function recordManualPaymentService({
 
             const paymentResult = await submitPaymentService({
                 billIds: targetBillIds,
-                familyId: cleanFamilyId,
+                familyId,
                 amountStated: amount,
                 channel: "cash_to_bendahara",
                 proofUrl: "manual_cash_recorded",
@@ -208,7 +214,7 @@ export async function recordManualPaymentService({
         } else {
             // Jalur Iuran Kas
             const kasResult = await submitKasContributionService({
-                familyId: cleanFamilyId,
+                familyId,
                 amount,
                 category: category || "sosial",
                 description: description || `Pencatatan Kas RT Manual KK ID ${cleanFamilyId}`,

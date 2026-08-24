@@ -44,7 +44,8 @@ export async function createBatchBills(billsData, connection = null) {
 
     const values = [];
     const placeholders = billsData.map(b => {
-        values.push(b.bill_period_id, b.family_id, b.amount, b.due_date, b.status || 'unpaid');
+        const targetFamilyId = b.family_id || b.resident_id;
+        values.push(b.bill_period_id, targetFamilyId, b.amount, b.due_date, b.status || 'unpaid');
         return "(?, ?, ?, ?, ?)";
     }).join(", ");
 
@@ -68,17 +69,22 @@ export async function createBatchBills(billsData, connection = null) {
 export async function getBillById(id, connection = null) {
     await ensureTables();
     const client = connection || db;
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
         SELECT b.*,
                bp.title AS period_title, bp.period_month, bp.period_year,
                f.no_kk,
-               kk.nama AS resident_name, kk.nik AS resident_nik,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                h.blok AS house_blok, h.nomor AS house_nomor,
                a.username AS exempt_by_username
         FROM bills b
         JOIN bill_periods bp ON b.bill_period_id = bp.id
         JOIN family f ON b.family_id = f.id
-        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN house h ON f.house_id = h.id
         LEFT JOIN acount a ON b.exempt_by = a.id
         WHERE b.id = ?
@@ -109,36 +115,71 @@ export async function getBillByIdForUpdate(id, connection) {
 }
 
 /**
- * Ambil daftar tagihan untuk satu keluarga (family_id)
+ * Ambil daftar tagihan milik seorang warga (resident_id)
  */
-export async function getBillsByFamilyId(familyId, { status, year, month } = {}) {
+export async function getBillsByResident(residentId, { status, year, month } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`.
     let sql = `
         SELECT b.*,
                bp.title AS period_title, bp.period_month, bp.period_year,
                f.no_kk,
-               kk.nama AS resident_name,
-               p.id AS latest_payment_id,
-               p.status AS latest_payment_status,
-               p.reject_reason AS latest_reject_reason,
-               p.channel AS latest_payment_channel,
-               p.proof_url AS latest_proof_url,
-               p.created_at AS latest_payment_date
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name
         FROM bills b
         JOIN bill_periods bp ON b.bill_period_id = bp.id
         JOIN family f ON b.family_id = f.id
-        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
-        LEFT JOIN (
-            SELECT pbl.bill_id, p1.id, p1.status, p1.channel, p1.proof_url, p1.reject_reason, p1.created_at
-            FROM payment_bill_links pbl
-            JOIN payments p1 ON pbl.payment_id = p1.id
-            INNER JOIN (
-                SELECT pbl2.bill_id, MAX(p2.id) AS max_id
-                FROM payment_bill_links pbl2
-                JOIN payments p2 ON pbl2.payment_id = p2.id
-                GROUP BY pbl2.bill_id
-            ) latest ON pbl.bill_id = latest.bill_id AND p1.id = latest.max_id
-        ) p ON b.id = p.bill_id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
+        WHERE b.family_id = (SELECT family_id FROM warga WHERE id = ? LIMIT 1)
+    `;
+    const params = [residentId];
+
+    if (status) {
+        if (status === 'overdue') {
+            sql += " AND b.status = 'unpaid' AND b.due_date < CURDATE()";
+        } else {
+            sql += " AND b.status = ?";
+            params.push(status);
+        }
+    }
+    if (year) {
+        sql += " AND bp.period_year = ?";
+        params.push(year);
+    }
+    if (month) {
+        sql += " AND bp.period_month = ?";
+        params.push(month);
+    }
+
+    sql += " ORDER BY bp.period_year DESC, bp.period_month DESC, b.id DESC";
+
+    try {
+        const [rows] = await db.execute(sql, params);
+        return rows.map(computeBillStatus);
+    } catch (err) {
+        console.error("error getBillsByResident:", err);
+        throw err;
+    }
+}
+
+/**
+ * Ambil daftar tagihan untuk seluruh anggota dalam satu KK (family_id)
+ */
+export async function getBillsByFamilyId(familyId, { status, year, month } = {}) {
+    await ensureTables();
+    // TODO: alias `resident_name` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`.
+    let sql = `
+        SELECT b.*,
+               bp.title AS period_title, bp.period_month, bp.period_year,
+               f.no_kk,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name
+        FROM bills b
+        JOIN bill_periods bp ON b.bill_period_id = bp.id
+        JOIN family f ON b.family_id = f.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         WHERE b.family_id = ?
     `;
     const params = [familyId];
@@ -200,15 +241,20 @@ export async function getBillsByIdsForUpdate(ids, connection) {
  */
 export async function getBillsByPeriodId(billPeriodId, { status, limit = 100, offset = 0 } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     let sql = `
         SELECT b.*,
                f.no_kk,
-               kk.nama AS resident_name, kk.nik AS resident_nik,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                h.blok AS house_blok, h.nomor AS house_nomor,
                p.id AS latest_payment_id, p.status AS payment_status, p.channel AS payment_channel, p.proof_url
         FROM bills b
         JOIN family f ON b.family_id = f.id
-        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN house h ON f.house_id = h.id
         LEFT JOIN (
             SELECT pbl.bill_id, p1.id, p1.status, p1.channel, p1.proof_url

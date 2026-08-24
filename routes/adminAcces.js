@@ -1,5 +1,5 @@
 import e from "express";
-import { warga, inputData, getResident, editedResident, inputHouse, getHouse, getWarga, revealWarga, revealFamily, searchResidentController, getPopulationStatsController, deleteWargaController, editNikWargaController, editNoKkController, getKepalaKeluargaController } from "../controllers/residentController.js"
+import { warga, getResident, editedResident, getHouse, getWarga, revealWarga, revealFamily, searchResidentController, getPopulationStatsController, deleteWargaController, editNikWargaController, editNoKkController, getKepalaKeluargaController } from "../controllers/residentController.js"
 import { createWargaAccountController, createStaffAccountController, bindAccountToFamilyController, checkAccountStatusController, getAccessLogsController } from "../controllers/accountController.js"
 import { getPendingWargaController, verifyWargaController } from "../controllers/verificationController.js"
 import { reviewPengaduan, approvePengaduan, removePengaduanController } from "../controllers/pengaduan.js"
@@ -21,7 +21,7 @@ import {
     getPendingKasContributionsController,
     getKasAuditController
 } from "../controllers/kasController.js"
-import { verifyInput, residentSchema, updateResidentSchema, announcementSchema, updateAnnouncementSchema } from "../middlewares/verivyGmail.js"
+import { verifyInput, updateResidentSchema, announcementSchema, updateAnnouncementSchema } from "../middlewares/verivyGmail.js"
 import { createAnnouncementController, getAnnouncementsController, editAnnouncementController, removeAnnouncementController } from "../controllers/announcement.js"
 import { createAgendaController, getAgendasController, editAgendaController, removeAgendaController } from "../controllers/agenda.js"
 import { createSuratMasukController, getSuratMasukController, createSuratKeluarController, getSuratKeluarController } from "../controllers/suratController.js"
@@ -35,7 +35,7 @@ import {
 import { uploadTemplateMiddleware, uploadSensitifMiddleware } from "../middlewares/multerConfig.js"
 import { createKaryawanController, removeKaryawanController } from "../controllers/karyawan.js"
 import { deleteSensitifDataController } from "../controllers/documentController.js"
-import { registerFamilyController } from "../controllers/familyRegistrationController.js"
+import { registerFamilyController, registerResidentOnlyController } from "../controllers/familyRegistrationController.js"
 import jwtAuth from "../middlewares/validationJwt.js"
 import { checkRoles } from "../middlewares/checkRole.js"
 import { authLimiter } from "../middlewares/rateLimiter.js"
@@ -69,6 +69,7 @@ app.patch("/account/family/:familyId", checkRoles('rt', 'sekretaris'), updateAcc
 app.patch("/account-warga/:familyId", checkRoles('rt', 'sekretaris'), updateAccountByAdminController)
 app.patch("/account-update", checkRoles('rt', 'sekretaris'), updateAccountByAdminController)
 app.post("/register-family", checkRoles('rt', 'sekretaris'), registerFamilyController)
+app.post("/register-resident-only", checkRoles('rt', 'sekretaris'), registerResidentOnlyController)
 
 
 app.get("/pengaduan", checkRoles('rt', 'sekretaris'), reviewPengaduan)
@@ -122,10 +123,9 @@ app.patch("/template-surat/:id", checkRoles('rt', 'sekretaris'), uploadTemplateM
 app.delete("/template-surat/:id", checkRoles('rt', 'sekretaris'), deleteTemplateSuratController)
 
 
-app.post("/resident", verifyInput(residentSchema), checkRoles('rt', 'sekretaris'), inputData)
-app.post("/house", checkRoles('rt', 'sekretaris'), inputHouse )
 app.post("/datawarga", checkRoles('rt', 'sekretaris'), warga)
 app.delete("/datawarga/:id", checkRoles('rt', 'sekretaris'), deleteWargaController)
+
 app.patch("/resident/:id", verifyInput(updateResidentSchema), checkRoles('rt', 'sekretaris'), editedResident)
 app.patch("/datawarga/nik/:id", checkRoles('rt', 'sekretaris'), editNikWargaController)
 app.patch("/resident/nokk/:id", checkRoles('rt', 'sekretaris'), editNoKkController)
@@ -186,4 +186,4 @@ app.delete("/karyawan/:id", checkRoles('rt', 'sekretaris'), removeKaryawanContro
 app.get("/access-logs", checkRoles('rt', 'sekretaris'), getAccessLogsController)
 app.delete("/resident/sensitifdata/:id", checkRoles('rt', 'sekretaris'), deleteSensitifDataController)
 
-export default app
+export default app

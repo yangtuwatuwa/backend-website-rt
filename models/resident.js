@@ -1,26 +1,8 @@
 import db from "../config/sqlconfig.js"
 import { autoHealFamilyHeads } from "./inputwarganya.js"
 
-export async function inputWarganya(nokk, houseId , kepalaKelaurgaId ){
-    const sqlcommand = "INSERT INTO family (id , no_kk , house_id , kepala_keluarga_id) VALUES (NULL , ? , ? , ?) "
-    try {
-        let targetHead = null
-        if (kepalaKelaurgaId && !isNaN(kepalaKelaurgaId) && Number(kepalaKelaurgaId) > 0) {
-            const [wargaCheck] = await db.execute("SELECT id FROM warga WHERE id = ?", [kepalaKelaurgaId])
-            if (Array.isArray(wargaCheck) && wargaCheck.length > 0) {
-                targetHead = kepalaKelaurgaId
-            }
-        }
-        const hasilnya = await db.execute(sqlcommand , [nokk , houseId , targetHead])
-        return hasilnya
-    } catch (err) {
-        console.log(err)
-        return "error karena: " + err
-    }
-}
-
-
 export async function getWarganya() {
+
     await autoHealFamilyHeads()
     const sqlcommand = `
         SELECT 

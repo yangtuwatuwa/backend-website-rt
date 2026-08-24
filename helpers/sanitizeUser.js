@@ -16,6 +16,8 @@ const SENSITIVE_FIELDS = [
     "temporaryPassword",  // plaintext temp password
     "temp_password",      // alias
     "email",              // encrypted email (kirim versi decrypted via service, bukan raw cipher)
+    "email_encrypted",    // raw ciphertext
+    "email_blind_idx",    // blind index
     "two_factor_secret",  // future: 2FA secret
     "refresh_token",      // future: refresh token
     "reset_token",        // future: password reset token
@@ -85,5 +87,6 @@ export function toSafeUsers(users, extraFields = []) {
 // SQL column list yang aman untuk SELECT (tanpa password & email)
 export const SAFE_COLUMNS_SQL = "id, username, role, family_id, must_change_password"
 
-// SQL column list yang include password — HANYA untuk internal auth (login & verify)
-export const AUTH_COLUMNS_SQL = "id, username, password, role, family_id, must_change_password, email"
+// SQL column list yang include password & encrypted email — HANYA untuk internal auth (login & verify)
+export const AUTH_COLUMNS_SQL = "id, username, password, role, family_id, must_change_password, email_encrypted, email_blind_idx"
+

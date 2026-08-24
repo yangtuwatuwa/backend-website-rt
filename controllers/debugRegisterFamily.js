@@ -30,8 +30,14 @@ export async function debugRegisterFamily(req, res) {
         umur: req.body.umur,
     };
 
+    const accountData = {
+        username: req.body.username || (req.body.kepalaKeluarga && req.body.kepalaKeluarga.username),
+        password: req.body.password || (req.body.kepalaKeluarga && req.body.kepalaKeluarga.password),
+        email: req.body.email || (req.body.kepalaKeluarga && req.body.kepalaKeluarga.email)
+    };
+
     try {
-        const result = await registerFamilyService(houseData, familyData, headOfFamilyData);
+        const result = await registerFamilyService(houseData, familyData, headOfFamilyData, accountData);
         console.log('[Debug Register Family] result:', result);
         // result already contains familyId, houseId, kepalaKeluargaId, account info
         return responseSucces(201, result, 'Debug registration successful', res);
@@ -40,3 +46,4 @@ export async function debugRegisterFamily(req, res) {
         return res.status(500).json({ pesan: 'error pada debug register: ' + err.message });
     }
 }
+

@@ -32,8 +32,6 @@ export async function createPaymentSessionService({ familyId, amount, paymentTyp
             paymentUrl = `http://localhost:5173/mock-payment?order_id=${orderId}&amount=${targetAmount}`;
         }
 
-        const cleanFamilyId = Number(familyId);
-
         // Catat transaksi awal di DB
         if (paymentType === "ipl") {
             let targetBillIds = Array.isArray(billIds) ? billIds.filter(id => Boolean(id)) : [];
@@ -50,7 +48,7 @@ export async function createPaymentSessionService({ familyId, amount, paymentTyp
             const [payRes] = await pool.execute(
                 `INSERT INTO payments (family_id, total_amount, channel, proof_url, status, created_at)
                  VALUES (?, ?, 'transfer', ?, 'pending', NOW())`,
-                [cleanFamilyId, targetAmount, `order_id:${orderId}`]
+                [familyId, targetAmount, `order_id:${orderId}`]
             );
             const paymentId = payRes.insertId;
 
@@ -67,7 +65,7 @@ export async function createPaymentSessionService({ familyId, amount, paymentTyp
             await pool.execute(
                 `INSERT INTO kas_contributions (family_id, amount, category, description, channel, proof_url, status, created_at)
                  VALUES (?, ?, ?, ?, 'transfer', ?, 'pending', NOW())`,
-                [cleanFamilyId, targetAmount, category || "sosial", description || "Payment Gateway Kas RT", `order_id:${orderId}`]
+                [familyId, targetAmount, category || "sosial", description || "Payment Gateway Kas RT", `order_id:${orderId}`]
             );
         }
 

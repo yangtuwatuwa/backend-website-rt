@@ -46,4 +46,19 @@ export async function getAccountByIdWithAuth(id) {
     }
 }
 
+/**
+ * Lookup / Login query by email blind index — SELECT AUTH_COLUMNS_SQL FROM acount WHERE email_blind_idx = ?
+ */
+export async function getAccountByBlindIndex(emailBlindIdx) {
+    const sqlcommand = `SELECT ${AUTH_COLUMNS_SQL} FROM acount WHERE email_blind_idx = ?`
+    try {
+        const [result] = await pool.execute(sqlcommand, [emailBlindIdx])
+        return result;
+    } catch (err) {
+        console.log("error getAccountByBlindIndex:" + err)
+        return "error"
+    }
+}
+
 export default loginAccount;
+

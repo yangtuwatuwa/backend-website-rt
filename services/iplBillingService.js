@@ -141,26 +141,19 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
             return { error: "Periode tagihan ini sudah pernah dipublish sebelumnya!" };
         }
 
-        // 2. Ambil seluruh keluarga aktif (KK yang memiliki anggota keluarga berstatus data diterima dan hidup)
+        // 2. Ambil seluruh keluarga (KK) aktif (1 KK = 1 tagihan per periode)
         const [activeFamilies] = await connection.execute(`
-            SELECT DISTINCT f.id AS family_id, f.no_kk, f.kepala_keluarga_id, kk.nama AS kepala_keluarga_nama
+            SELECT f.id AS family_id
             FROM family f
-            LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
-            WHERE EXISTS (
-                SELECT 1 FROM warga w 
-                WHERE w.family_id = f.id 
-                  AND (w.status_data = 'diterima' OR w.status_data IS NULL)
-                  AND (w.status_hidup = 'Hidup' OR w.status_hidup IS NULL)
-            )
             ORDER BY f.id ASC
         `);
 
         if (!activeFamilies || activeFamilies.length === 0) {
             await connection.rollback();
-            return { error: "Tidak ada keluarga aktif yang ditemukan untuk diterbitkan tagihan!" };
+            return { error: "Tidak ada keluarga (KK) yang ditemukan untuk diterbitkan tagihan!" };
         }
 
-        // 3. Siapkan data batch bills (snapshot amount & due_date per KELUARGA)
+        // 3. Siapkan data batch bills (snapshot amount & due_date per family)
         const billsToInsert = activeFamilies.map(f => ({
             bill_period_id: period.id,
             family_id: f.family_id,
@@ -194,7 +187,7 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
 
         const summary = await getBillsSummaryByPeriodId(period.id);
         return {
-            message: `Tagihan "${period.title}" berhasil dipublish untuk ${activeFamilies.length} keluarga aktif!`,
+            message: `Tagihan "${period.title}" berhasil dipublish untuk ${activeFamilies.length} keluarga (KK)!`,
             period_id: period.id,
             total_bills_generated: activeFamilies.length,
             summary
@@ -220,8 +213,8 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
 export async function submitPaymentService({
     billIds,
     billId, // Fallback jika single id dikirim
-    familyId, // ID Keluarga pembayar
-    residentId, // Backward-compatibility fallback
+    familyId,
+    residentId, // Fallback
     amountStated,
     channel,
     proofUrl = null,
@@ -279,7 +272,6 @@ export async function submitPaymentService({
 
         // 2. Validasi kepemilikan tagihan (semua tagihan harus milik KK yang sama)
         const primaryFamilyId = bills[0].family_id;
-        const targetFamilyId = Number(familyId || primaryFamilyId);
 
         for (const b of bills) {
             // Validasi cross-family: tagihan harus milik familyId yang login
@@ -317,6 +309,7 @@ export async function submitPaymentService({
             };
         }
 
+        const targetFamilyId = familyId || primaryFamilyId;
         const billAllocations = bills.map(b => ({
             billId: b.id,
             allocatedAmount: parseFloat(b.amount)

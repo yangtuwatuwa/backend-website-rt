@@ -1,19 +1,7 @@
-import { inputWarganya, getWarganya } from "../models/resident.js";
+import { getWarganya } from "../models/resident.js";
 import { encryptEmails, decryptEmails } from "../helpers/ciihper.js";
 import { maskData } from "../utils/masking.js";
 
-export async function logicWarganya(noKK, houseId, kepalaKeluarga){
-    try {
-        const nokk = await encryptEmails(noKK)
-        const targetHead = (kepalaKeluarga !== undefined && kepalaKeluarga !== null && kepalaKeluarga !== "") ? kepalaKeluarga : null
-        const hasilnya = await inputWarganya(nokk, houseId, targetHead)
-        return hasilnya;
-        
-    } catch (err) {
-        console.log(err)
-        return 'error mas ' +  err;
-    }
-}
 
 export async function listWarganya() {
     try {
@@ -23,29 +11,26 @@ export async function listWarganya() {
         }
         
         const decryptedWarga = hasilnya.map(w => {
-            try {
-                const hasAccountBool = Boolean(w.account_id);
-                return {
-                    ...w,
-                    hasAccount: hasAccountBool,
-                    has_account: hasAccountBool,
-                    status_akun: hasAccountBool ? "registered" : "unregistered",
-                    no_kk: maskData(decryptEmails(w.no_kk)),
-                    house_blok: w.house_blok ? decryptEmails(w.house_blok) : null,
-                    house_nomor: w.house_nomor ? decryptEmails(w.house_nomor) : null,
-                    house_alamat: w.house_alamat ? decryptEmails(w.house_alamat) : null,
-                    kepala_keluarga_nik: w.kepala_keluarga_nik ? maskData(decryptEmails(w.kepala_keluarga_nik)) : null,
-                    kepala_keluarga_nohp: w.kepala_keluarga_nohp ? decryptEmails(w.kepala_keluarga_nohp) : null
-                }
-            } catch (decErr) {
-                const hasAccountBool = Boolean(w.account_id);
-                return {
-                    ...w,
-                    hasAccount: hasAccountBool,
-                    has_account: hasAccountBool,
-                    status_akun: hasAccountBool ? "registered" : "unregistered"
-                };
-            }
+            const hasAccountBool = Boolean(w.account_id);
+            const decNoKk = decryptEmails(w.no_kk);
+            const decNik = w.kepala_keluarga_nik ? decryptEmails(w.kepala_keluarga_nik) : "";
+            const decBlok = w.house_blok ? decryptEmails(w.house_blok) : null;
+            const decNomor = w.house_nomor ? decryptEmails(w.house_nomor) : null;
+            const decAlamat = w.house_alamat ? decryptEmails(w.house_alamat) : null;
+            const decNoHp = w.kepala_keluarga_nohp ? decryptEmails(w.kepala_keluarga_nohp) : null;
+
+            return {
+                ...w,
+                hasAccount: hasAccountBool,
+                has_account: hasAccountBool,
+                status_akun: hasAccountBool ? "registered" : "unregistered",
+                no_kk: decNoKk ? maskData(decNoKk) : null,
+                house_blok: decBlok || null,
+                house_nomor: decNomor || null,
+                house_alamat: decAlamat || null,
+                kepala_keluarga_nik: decNik ? maskData(decNik) : null,
+                kepala_keluarga_nohp: decNoHp || null
+            };
         })
         return decryptedWarga
     } catch (err) {

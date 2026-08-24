@@ -3,32 +3,40 @@ import { responseSucces } from "../utils/response.js"
 import { emitSyncEvent } from "../utils/socket.js"
 
 export async function createWargaAccountController(req, res) {
-    const { familyId, family_id, username, password } = req.body;
+    const { familyId, family_id, username, password, email } = req.body;
     const targetFamilyId = familyId || family_id;
-    console.log(`[Request Create Warga Account] familyId: ${targetFamilyId}, username: ${username}`);
+    console.log(`[Request Create Warga Account] familyId: ${targetFamilyId}, username: ${username}, email: ${email}`);
     
     // ---- Validation ----
     if (!targetFamilyId) {
         console.log('[Error Create Warga Account] familyId missing');
         return res.status(400).json({ pesan: 'familyId wajib diisi untuk membuat akun warga' });
     }
+    if (!username || !String(username).trim()) {
+        return res.status(400).json({ pesan: 'Username wajib diisi' });
+    }
+    if (!password || !String(password).trim()) {
+        return res.status(400).json({ pesan: 'Password wajib diisi' });
+    }
+    if (!email || !String(email).trim()) {
+        return res.status(400).json({ pesan: 'Email wajib diisi' });
+    }
+
     try {
-        const account = await generateWargaAccount(targetFamilyId, username, password);
+        const account = await generateWargaAccount(targetFamilyId, String(username).trim(), String(password).trim(), String(email).trim());
         console.log(`[Response Create Warga Account] akun berhasil dibuat untuk familyId: ${targetFamilyId}`);
         if (typeof account === "string" && account.startsWith('error')) {
             return res.status(400).json({ pesan: account });
         }
         emitSyncEvent("warga");
 
-        // Password sementara dikirim SEKALI ke admin untuk dicatat/diberikan ke warga.
-        // Setelah response ini, password plaintext tidak pernah bisa diakses lagi.
         return res.status(201).json({
             response: 201,
             data: {
                 username: account.username,
-                temporaryPassword: account.temporaryPassword
+                temporaryPassword: account.temporaryPassword || password
             },
-            message: "Akun berhasil dibuat. Catat password sementara ini, tidak bisa dilihat lagi setelah halaman ditutup."
+            message: "Akun berhasil dibuat."
         });
     } catch (err) {
         console.log(`[Error Create Warga Account]:`, err);
@@ -41,6 +49,15 @@ export async function createStaffAccountController(req, res) {
     console.log(`[Request Create Staff Account] username: ${username}, email: ${email}, role: ${role}`)
 
     const allowedStaffRoles = ["sekertaris", "sekretaris", "bendahara"]
+    if (!username || !String(username).trim()) {
+        return res.status(400).json({ pesan: "Username wajib diisi" });
+    }
+    if (!password || !String(password).trim()) {
+        return res.status(400).json({ pesan: "Password wajib diisi" });
+    }
+    if (!email || !String(email).trim()) {
+        return res.status(400).json({ pesan: "Email wajib diisi" });
+    }
     if (!role || !allowedStaffRoles.includes(role)) {
         console.log(`[Response Create Staff Account] Gagal: Role ${role} tidak valid`)
         return res.status(400).json({ pesan: "Role staff tidak valid masbro! Cuma boleh sekertaris atau bendahara." })
@@ -49,7 +66,7 @@ export async function createStaffAccountController(req, res) {
     const mappedRole = (role === "sekretaris") ? "sekertaris" : role
 
     try {
-        const account = await generateStaffAccount(username, password, email, mappedRole)
+        const account = await generateStaffAccount(String(username).trim(), String(password).trim(), String(email).trim(), mappedRole)
         console.log(`[Response Create Staff Account] hasil:`, account)
         if (typeof account === "string" && account.startsWith("error")) {
             return res.status(400).json({ pesan: account })

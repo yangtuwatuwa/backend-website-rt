@@ -18,6 +18,7 @@ async function ensureTables() {
  */
 export async function createKasContribution({
     familyId,
+    residentId, // Fallback parameter
     amount,
     category,
     description = "-",
@@ -31,6 +32,7 @@ export async function createKasContribution({
 }, connection = null) {
     await ensureTables();
     const client = connection || db;
+    const targetFamilyId = familyId || residentId;
     const sql = `
         INSERT INTO kas_contributions (
             family_id, amount, category, description, channel, proof_url,
@@ -39,7 +41,7 @@ export async function createKasContribution({
     `;
     try {
         const [result] = await client.execute(sql, [
-            familyId,
+            targetFamilyId,
             amount,
             category,
             description,
@@ -64,15 +66,20 @@ export async function createKasContribution({
 export async function getKasContributionById(id, connection = null) {
     await ensureTables();
     const client = connection || db;
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
         SELECT k.*,
                f.no_kk,
-               kk.nama AS resident_name, kk.nik AS resident_nik,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                rec.username AS recorded_by_username,
                ver.username AS verified_by_username
         FROM kas_contributions k
         JOIN family f ON k.family_id = f.id
-        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN acount rec ON k.recorded_by = rec.id
         LEFT JOIN acount ver ON k.verified_by = ver.id
         WHERE k.id = ?
@@ -106,14 +113,19 @@ export async function getKasContributionByIdForUpdate(id, connection) {
  */
 export async function getPendingKasContributions({ limit = 50, offset = 0 } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
         SELECT k.*,
                f.no_kk,
-               kk.nama AS resident_name, kk.nik AS resident_nik,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                rec.username AS recorded_by_username
         FROM kas_contributions k
         JOIN family f ON k.family_id = f.id
-        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN acount rec ON k.recorded_by = rec.id
         WHERE k.status = 'pending'
         ORDER BY k.created_at ASC
@@ -129,18 +141,50 @@ export async function getPendingKasContributions({ limit = 50, offset = 0 } = {}
 }
 
 /**
+ * Ambil riwayat sumbangan kas milik seorang warga (resident_id)
+ */
+export async function getKasContributionsByResident(residentId) {
+    await ensureTables();
+    // TODO: alias `resident_name` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`.
+    const sql = `
+        SELECT k.*,
+               f.no_kk,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               ver.username AS verified_by_username
+        FROM kas_contributions k
+        JOIN family f ON k.family_id = f.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
+        LEFT JOIN acount ver ON k.verified_by = ver.id
+        WHERE k.family_id = (SELECT family_id FROM warga WHERE id = ? LIMIT 1)
+        ORDER BY k.created_at DESC
+    `;
+    try {
+        const [rows] = await db.execute(sql, [residentId]);
+        return rows;
+    } catch (err) {
+        console.error("error getKasContributionsByResident:", err);
+        throw err;
+    }
+}
+
+/**
  * Ambil riwayat sumbangan kas untuk satu Kartu Keluarga (family_id)
  */
 export async function getKasContributionsByFamily(familyId) {
     await ensureTables();
+    // TODO: alias `resident_name` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`.
     const sql = `
         SELECT k.*,
                f.no_kk,
-               kk.nama AS resident_name,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
                ver.username AS verified_by_username
         FROM kas_contributions k
         JOIN family f ON k.family_id = f.id
-        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN acount ver ON k.verified_by = ver.id
         WHERE k.family_id = ?
         ORDER BY k.created_at DESC
@@ -159,15 +203,20 @@ export async function getKasContributionsByFamily(familyId) {
  */
 export async function getKasAuditList({ category, status, channel, limit = 100, offset = 0 } = {}) {
     await ensureTables();
+    // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
+    // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     let sql = `
         SELECT k.*,
                f.no_kk,
-               kk.nama AS resident_name, kk.nik AS resident_nik,
+               w.nama AS kepala_keluarga_nama,
+               w.nama AS resident_name,
+               w.nik AS kepala_keluarga_nik,
+               w.nik AS resident_nik,
                rec.username AS recorded_by_username,
                ver.username AS verified_by_username
         FROM kas_contributions k
         JOIN family f ON k.family_id = f.id
-        LEFT JOIN warga kk ON f.kepala_keluarga_id = kk.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
         LEFT JOIN acount rec ON k.recorded_by = rec.id
         LEFT JOIN acount ver ON k.verified_by = ver.id
         WHERE 1=1

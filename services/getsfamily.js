@@ -11,22 +11,24 @@ export default async function family(id) {
         }
 
         const decryptedWarga = hasilnya.map(w => {
-            try {
-                const decTglLahir = decryptEmails(w.tgl_lahir);
-                const realUmur = calculateAge(decTglLahir, w.umur);
-                return {
-                    ...w,
-                    nik: maskData(decryptEmails(w.nik)),
-                    tgl_lahir: decTglLahir,
-                    no_hp: decryptEmails(w.no_hp),
-                    umur: realUmur,
-                    house_blok: w.house_blok ? decryptEmails(w.house_blok) : null,
-                    house_nomor: w.house_nomor ? decryptEmails(w.house_nomor) : null,
-                    house_alamat: w.house_alamat ? decryptEmails(w.house_alamat) : null
-                }
-            } catch (decErr) {
-                return w;
-            }
+            const decNik = decryptEmails(w.nik);
+            const decTglLahir = decryptEmails(w.tgl_lahir);
+            const decNoHp = decryptEmails(w.no_hp);
+            const decBlok = w.house_blok ? decryptEmails(w.house_blok) : null;
+            const decNomor = w.house_nomor ? decryptEmails(w.house_nomor) : null;
+            const decAlamat = w.house_alamat ? decryptEmails(w.house_alamat) : null;
+            const realUmur = decTglLahir ? calculateAge(decTglLahir, w.umur) : w.umur;
+
+            return {
+                ...w,
+                nik: decNik ? maskData(decNik) : null,
+                tgl_lahir: decTglLahir || null,
+                no_hp: decNoHp || null,
+                umur: realUmur,
+                house_blok: decBlok || null,
+                house_nomor: decNomor || null,
+                house_alamat: decAlamat || null
+            };
         })
         return decryptedWarga;
     } catch (err) {

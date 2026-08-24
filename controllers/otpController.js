@@ -20,6 +20,12 @@ export async function requestOtpController(req, res) {
 
   try {
     const result = await requestOtpService(userId, email, targetPurpose);
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        pesan: result.message
+      });
+    }
     return res.status(200).json({
       success: true,
       pesan: result.message
