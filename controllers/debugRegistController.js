@@ -21,7 +21,10 @@ export async function debugRegistController(req, res) {
     console.log(`[Response Debug Register] hasil:`, hasilnya);
 
     if (typeof hasilnya === "string" && (hasilnya.startsWith("error") || hasilnya.startsWith("Error"))) {
-        return res.status(400).json({ pesan: hasilnya });
+        return res.status(400).json({ success: false, pesan: hasilnya });
+    }
+    if (hasilnya && typeof hasilnya === "object" && hasilnya.success === false) {
+        return res.status(400).json({ success: false, pesan: hasilnya.message || "Gagal debug registrasi" });
     }
     return res.status(201).json(hasilnya);
 }

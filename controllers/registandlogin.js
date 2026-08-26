@@ -14,11 +14,14 @@ export async function regist(req, res) {
     const hasilnya = await register(username, password, email, role, targetFamilyId)
     console.log(`[Response Register] hasil:`, hasilnya)
 
-    // Jika service mengembalikan error string, kirim 400
-    if (typeof hasilnya === 'string' && hasilnya.startsWith('error')) {
-        return res.status(400).json({ pesan: hasilnya })
+    // Jika service mengembalikan error string atau object dengan success false, kirim 400
+    if (typeof hasilnya === 'string' && (hasilnya.startsWith('error') || hasilnya.startsWith('Error'))) {
+        return res.status(400).json({ success: false, pesan: hasilnya });
     }
-    return res.status(201).json(hasilnya)
+    if (hasilnya && typeof hasilnya === 'object' && hasilnya.success === false) {
+        return res.status(400).json({ success: false, pesan: hasilnya.message || 'Registrasi gagal' });
+    }
+    return res.status(201).json(hasilnya);
 }
 export async function login(req,res) {
     const {username , password} = req.body

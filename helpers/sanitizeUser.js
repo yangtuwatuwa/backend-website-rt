@@ -31,6 +31,7 @@ const SAFE_USER_FIELDS = [
     "role",
     "family_id",
     "must_change_password",
+    "is_verified",
 ]
 
 /**
@@ -85,8 +86,8 @@ export function toSafeUsers(users, extraFields = []) {
 }
 
 // SQL column list yang aman untuk SELECT (tanpa password & email)
-export const SAFE_COLUMNS_SQL = "id, username, role, family_id, must_change_password"
+export const SAFE_COLUMNS_SQL = "id, username, role, family_id, must_change_password, is_verified"
 
 // SQL column list yang include password & encrypted email — HANYA untuk internal auth (login & verify)
-export const AUTH_COLUMNS_SQL = "id, username, password, role, family_id, must_change_password, email_encrypted, email_blind_idx"
+export const AUTH_COLUMNS_SQL = "id, username, password, role, family_id, must_change_password, is_verified, email_encrypted, email_blind_idx"
 

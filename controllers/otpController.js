@@ -1,7 +1,7 @@
 import { requestOtpService, verifyOtpService } from "../services/otpService.js";
 
 /**
- * Controller untuk meminta pengiriman kode OTP ke email
+ * Controller untuk meminta pengiriman kode OTP ke email (Request / Resend OTP)
  * Endpoint: POST /auth/request-otp
  */
 export async function requestOtpController(req, res) {
@@ -10,11 +10,11 @@ export async function requestOtpController(req, res) {
 
   console.log(`[Request OTP] userId: ${userId}, email: ${email}, purpose: ${targetPurpose}`);
 
-  if (!userId || !email) {
-    console.log('[Error Request OTP] userId atau email tidak diisi');
+  if (!userId && !email) {
+    console.log('[Error Request OTP] userId dan email dua-duanya kosong');
     return res.status(400).json({ 
       success: false, 
-      pesan: "userId dan email wajib diisi!" 
+      pesan: "userId atau email wajib diisi!" 
     });
   }
 
@@ -28,7 +28,9 @@ export async function requestOtpController(req, res) {
     }
     return res.status(200).json({
       success: true,
-      pesan: result.message
+      userId: result.userId,
+      pesan: result.message,
+      message: result.message
     });
   } catch (err) {
     console.error(`[Error Request OTP]:`, err);
@@ -64,13 +66,17 @@ export async function verifyOtpController(req, res) {
     if (!result.success) {
       return res.status(400).json({
         success: false,
-        pesan: result.message
+        pesan: result.message,
+        message: result.message
       });
     }
 
     return res.status(200).json({
       success: true,
-      pesan: result.message
+      userId: result.userId,
+      is_verified: result.is_verified,
+      pesan: result.message,
+      message: result.message
     });
   } catch (err) {
     console.error(`[Error Verify OTP]:`, err);
@@ -80,3 +86,4 @@ export async function verifyOtpController(req, res) {
     });
   }
 }
+

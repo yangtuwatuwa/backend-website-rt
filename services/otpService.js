@@ -1,7 +1,8 @@
 import crypto from 'crypto';
+import db from '../config/sqlconfig.js';
 import { argonhash, argonverify } from '../helpers/argon2.js';
 import { sendOtpEmail } from '../utils/mailer.js';
-import { normalizeEmail, computeBlindIndex } from '../lib/crypto/email.js';
+import { normalizeEmail, computeBlindIndex, decryptEmail } from '../lib/crypto/email.js';
 import { findAccountByBlindIndex } from '../models/register.js';
 import { 
   invalidatePreviousOtps, 
@@ -14,49 +15,100 @@ import {
 const MAX_ATTEMPTS = 3;
 
 /**
- * Generate OTP, Hash, simpan ke database, dan kirim via email Nodemailer
+ * Generate OTP, Hash, simpan ke database, dan kirim via email Nodemailer.
+ * Mendukung pemanggilan hanya dengan userId (resend OTP) atau email.
  * @param {number|string} userId 
- * @param {string} email 
- * @param {string} purpose 
+ * @param {string} [email] 
+ * @param {string} [purpose='VERIFICATION'] 
  */
 export async function requestOtpService(userId, email, purpose = 'VERIFICATION') {
   try {
-    // 1. Validasi duplikat email khusus untuk registrasi/verifikasi akun baru
-    if (purpose === 'VERIFICATION' || purpose === 'REGISTRATION') {
-      const cleanEmail = (email || '').trim();
-      const normalized = normalizeEmail(cleanEmail);
-      const blindIdx = computeBlindIndex(normalized);
-      const isEmailTaken = await findAccountByBlindIndex(blindIdx);
-      if (isEmailTaken) {
+    if (!userId && !email) {
+      return {
+        success: false,
+        message: "userId atau email wajib diisi!"
+      };
+    }
+
+    let targetEmail = (email || '').trim();
+    let targetUserId = userId;
+
+    // 1. Validasi keberadaan akun di tabel acount
+    if (targetUserId) {
+      const [userRows] = await db.execute(
+        "SELECT id, email_encrypted FROM acount WHERE id = ?",
+        [targetUserId]
+      );
+
+      if (!userRows || userRows.length === 0) {
+        console.warn(`[OTP Service] Warning: userId ${targetUserId} tidak ditemukan di tabel acount.`);
         return {
           success: false,
-          message: "Email sudah terdaftar pada akun lain"
+          message: `Akun dengan userId ${targetUserId} tidak ditemukan.`
         };
       }
+
+      // Jika email tidak disediakan di request, dekripsi email dari database
+      if (!targetEmail && userRows[0].email_encrypted) {
+        try {
+          targetEmail = decryptEmail(userRows[0].email_encrypted);
+        } catch (decErr) {
+          console.error(`[OTP Service] Gagal mendekripsi email userId ${targetUserId}:`, decErr);
+        }
+      }
+    } else if (targetEmail) {
+      const normalized = normalizeEmail(targetEmail);
+      const blindIdx = computeBlindIndex(normalized);
+      const [userRows] = await db.execute(
+        "SELECT id FROM acount WHERE email_blind_idx = ?",
+        [blindIdx]
+      );
+      if (!userRows || userRows.length === 0) {
+        return {
+          success: false,
+          message: `Akun dengan email ${targetEmail} tidak ditemukan.`
+        };
+      }
+      targetUserId = userRows[0].id;
+      targetEmail = normalized;
+    }
+
+    if (!targetEmail) {
+      return {
+        success: false,
+        message: "Email akun tidak ditemukan untuk mengirimkan kode OTP."
+      };
     }
 
     // 2. Nonaktifkan OTP lama yang belum terpakai milik user ini
-    await invalidatePreviousOtps(userId, purpose);
+    await invalidatePreviousOtps(targetUserId, purpose);
 
-    // 2. Generate 6 digit angka acak yang aman (100000 - 999999)
+    // 3. Generate 6 digit angka acak yang aman (100000 - 999999)
     const otpCode = crypto.randomInt(100000, 1000000).toString();
 
     console.log(`\n==========================================`);
-    console.log(`🔑 [DEV DEBUG OTP] KODE OTP: ${otpCode} | userId: ${userId} | email: ${email} | purpose: ${purpose}`);
+    console.log(`🔑 [DEV DEBUG OTP] KODE OTP (REQUEST/RESEND): ${otpCode} | userId: ${targetUserId} | email: ${targetEmail} | purpose: ${purpose}`);
     console.log(`==========================================\n`);
 
-    // 3. Hash OTP menggunakan Argon2
+    // 4. Hash OTP menggunakan Argon2
     const otpHash = await argonhash(otpCode);
 
-    // 4. Simpan hash OTP ke MySQL dengan durasi 5 menit (menggunakan DATE_ADD(NOW(), INTERVAL 5 MINUTE))
-    await saveOtpCode(userId, otpHash, 5, purpose);
+    // 5. Simpan hash OTP ke MySQL dengan durasi 5 menit
+    await saveOtpCode(targetUserId, otpHash, 5, purpose);
 
-    // 5. Kirim email via Nodemailer
-    await sendOtpEmail(email, otpCode);
+    // 6. Kirim email via Nodemailer
+    try {
+      await sendOtpEmail(targetEmail, otpCode);
+      console.log(`[OTP Service] OTP (${otpCode}) berhasil dikirim untuk userId: ${targetUserId}`);
+    } catch (mailErr) {
+      console.error(`[OTP Service] Peringatan: Gagal mengirim email OTP ke ${targetEmail}:`, mailErr.message || mailErr);
+    }
 
-    console.log(`[OTP Service] OTP (${otpCode}) berhasil dikirim untuk userId: ${userId}`);
-
-    return { success: true, message: "Kode OTP berhasil dikirim ke email." };
+    return { 
+      success: true, 
+      userId: targetUserId,
+      message: "Kode OTP berhasil dikirim ke email." 
+    };
   } catch (error) {
     console.error("Error pada requestOtpService:", error);
     throw error;
@@ -64,7 +116,8 @@ export async function requestOtpService(userId, email, purpose = 'VERIFICATION')
 }
 
 /**
- * Verifikasi kode OTP dari input user
+ * Verifikasi kode OTP dari input user.
+ * Jika purpose = 'VERIFICATION' dan kode valid -> UPDATE acount SET is_verified = 1.
  * @param {number|string} userId 
  * @param {string|number} inputOtp 
  * @param {string} purpose 
@@ -113,7 +166,18 @@ export async function verifyOtpService(userId, inputOtp, purpose = 'VERIFICATION
     // 4. Jika BENAR -> Tandai OTP sebagai digunakan (is_used = 1) agar tidak bisa Replay Attack
     await markOtpAsUsed(activeOtp.id);
 
-    return { success: true, message: "Verifikasi OTP berhasil!" };
+    // 5. UPDATE status verifikasi akun menjadi aktif (is_verified = 1) jika purpose adalah VERIFICATION
+    if (purpose === 'VERIFICATION') {
+      await db.execute("UPDATE acount SET is_verified = 1 WHERE id = ?", [userId]);
+      console.log(`✅ [OTP Service] Status akun userId ${userId} berhasil diperbarui: is_verified = 1`);
+    }
+
+    return { 
+      success: true, 
+      userId: Number(userId),
+      is_verified: 1,
+      message: "Verifikasi OTP berhasil!" 
+    };
   } catch (error) {
     console.error("Error pada verifyOtpService:", error);
     throw error;

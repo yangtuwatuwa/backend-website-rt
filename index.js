@@ -15,6 +15,7 @@ import { startNotificationScheduler } from "./services/notificationScheduler.js"
 import { initSocket } from "./utils/socket.js"
 
 import accountRoutes from "./routes/account.js"
+import adminPanelRoutes from "./routes/adminPanel.js"
 
 dotenv.config()
 const app = express()
@@ -40,6 +41,7 @@ app.use("/post", postRoutes)
 app.use("/admin", datasensi)
 app.use("/resident", userAccesRoutes)
 app.use("/account", accountRoutes)
+app.use("/api/admin", adminPanelRoutes)
 
 // Inisialisasi scheduler reminder otomatis tagihan IPL
 startNotificationScheduler()

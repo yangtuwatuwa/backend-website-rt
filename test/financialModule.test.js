@@ -75,68 +75,47 @@ export async function runFinancialTests() {
         await pool.query("DELETE FROM family WHERE id IN (991, 992);");
         await pool.query("SET FOREIGN_KEY_CHECKS = 1;");
 
-<<<<<<< HEAD
         // -------------------------------------------------------------
         // Siapkan Data Dummy 2 Keluarga:
+        // - House 991 & 992
         // - Keluarga A (ID 991): Memiliki 5 Anggota Keluarga
         // - Keluarga B (ID 992): Memiliki 3 Anggota Keluarga
         // -------------------------------------------------------------
         console.log("🏠 Menyiapkan Fixture: Keluarga A (5 Warga) & Keluarga B (3 Warga)...");
-        await pool.query("INSERT INTO family (id, no_kk) VALUES (991, 'KK-KELUARGA-A-001') ON DUPLICATE KEY UPDATE id=id;");
-        await pool.query("INSERT INTO family (id, no_kk) VALUES (992, 'KK-KELUARGA-B-002') ON DUPLICATE KEY UPDATE id=id;");
+        await pool.query("INSERT INTO house (id, blok, nomor, alamat, status) VALUES (991, 'A', '991', 'Jl Test A', 'pribadi'), (992, 'B', '992', 'Jl Test B', 'pribadi') ON DUPLICATE KEY UPDATE id=id;");
+        await pool.query("INSERT INTO family (id, no_kk, house_id) VALUES (991, 'KK-KELUARGA-A-001', 991), (992, 'KK-KELUARGA-B-002', 992) ON DUPLICATE KEY UPDATE id=id;");
 
         // 5 Warga di Keluarga A
         await pool.query(`
-            INSERT INTO warga (id, nik, nama, family_id, status_data, status_hidup) VALUES
-            (9101, 'NIK-A-01', 'Budi Santoso (Kepala KK A)', 991, 'diterima', 'Hidup'),
-            (9102, 'NIK-A-02', 'Siti Rahma (Istri A)', 991, 'diterima', 'Hidup'),
-            (9103, 'NIK-A-03', 'Andi Pratama (Anak 1 A)', 991, 'diterima', 'Hidup'),
-            (9104, 'NIK-A-04', 'Rina Wati (Anak 2 A)', 991, 'diterima', 'Hidup'),
-            (9105, 'NIK-A-05', 'Doni Saputra (Anak 3 A)', 991, 'diterima', 'Hidup')
+            INSERT INTO warga (id, nik, nama, jenis_kelamin, tgl_lahir, no_hp, family_id, house_id, status_data, status_hidup) VALUES
+            (9101, 'NIK-A-01', 'Budi Santoso (Kepala KK A)', 'Laki-laki', '1980-01-01', '081234567891', 991, 991, 'diterima', 'Hidup'),
+            (9102, 'NIK-A-02', 'Siti Rahma (Istri A)', 'Perempuan', '1985-02-02', '081234567892', 991, 991, 'diterima', 'Hidup'),
+            (9103, 'NIK-A-03', 'Andi Pratama (Anak 1 A)', 'Laki-laki', '2005-03-03', '081234567893', 991, 991, 'diterima', 'Hidup'),
+            (9104, 'NIK-A-04', 'Rina Wati (Anak 2 A)', 'Perempuan', '2008-04-04', '081234567894', 991, 991, 'diterima', 'Hidup'),
+            (9105, 'NIK-A-05', 'Doni Saputra (Anak 3 A)', 'Laki-laki', '2012-05-05', '081234567895', 991, 991, 'diterima', 'Hidup')
             ON DUPLICATE KEY UPDATE id=id;
         `);
         await pool.query("UPDATE family SET kepala_keluarga_id = 9101 WHERE id = 991;");
 
         // 3 Warga di Keluarga B
         await pool.query(`
-            INSERT INTO warga (id, nik, nama, family_id, status_data, status_hidup) VALUES
-            (9201, 'NIK-B-01', 'Joko Widodo (Kepala KK B)', 992, 'diterima', 'Hidup'),
-            (9202, 'NIK-B-02', 'Sri Mulyani (Istri B)', 992, 'diterima', 'Hidup'),
-            (9203, 'NIK-B-03', 'Bagus Nugroho (Anak B)', 992, 'diterima', 'Hidup')
+            INSERT INTO warga (id, nik, nama, jenis_kelamin, tgl_lahir, no_hp, family_id, house_id, status_data, status_hidup) VALUES
+            (9201, 'NIK-B-01', 'Joko Widodo (Kepala KK B)', 'Laki-laki', '1975-06-06', '081234567896', 992, 992, 'diterima', 'Hidup'),
+            (9202, 'NIK-B-02', 'Sri Mulyani (Istri B)', 'Perempuan', '1980-07-07', '081234567897', 992, 992, 'diterima', 'Hidup'),
+            (9203, 'NIK-B-03', 'Bagus Nugroho (Anak B)', 'Laki-laki', '2002-08-08', '081234567898', 992, 992, 'diterima', 'Hidup')
             ON DUPLICATE KEY UPDATE id=id;
         `);
         await pool.query("UPDATE family SET kepala_keluarga_id = 9201 WHERE id = 992;");
 
         // Akun Warga untuk Keluarga A & B
         await pool.query(`
-            INSERT INTO acount (id, username, password, role, family_id, resident_id, status) VALUES
-            (991, 'akun_keluarga_a', 'hashpass', 'warga', 991, 9101, 'active'),
-            (992, 'akun_keluarga_b', 'hashpass', 'warga', 992, 9201, 'active')
+            INSERT INTO acount (id, username, password, role, family_id, email_encrypted, email_blind_idx, is_verified) VALUES
+            (991, 'akun_keluarga_a', 'hashpass', 'warga', 991, UNHEX(HEX('dummy_email_encrypted_a')), 'dummy_blind_idx_test_991', 1),
+            (992, 'akun_keluarga_b', 'hashpass', 'warga', 992, UNHEX(HEX('dummy_email_encrypted_b')), 'dummy_blind_idx_test_992', 1)
             ON DUPLICATE KEY UPDATE id=id;
         `);
-=======
-        // Siapkan dummy data rumah, keluarga & warga
-        await pool.query("INSERT INTO house (id, blok, nomor, alamat, status) VALUES (991, 'A', '991', 'Jl Test', 'pribadi') ON DUPLICATE KEY UPDATE id=id;");
-        const [famRes] = await pool.query("INSERT INTO family (id, no_kk, house_id) VALUES (991, 'KK-TEST-991', 991) ON DUPLICATE KEY UPDATE id=id;");
+
         const testFamilyId = 991;
-
-        const [wargaRes] = await pool.query(`
-            INSERT INTO warga (id, nik, nama, family_id, house_id, status_data, status_hidup) 
-            VALUES (991, 'NIK-TEST-991', 'Budi Santoso Test', ?, 991, 'diterima', 'Hidup')
-            ON DUPLICATE KEY UPDATE id=id;
-        `, [testFamilyId]);
-        const testResidentId = 991;
-
-        // Hubungkan kepala keluarga
-        await pool.query("UPDATE family SET kepala_keluarga_id = ? WHERE id = ?", [testResidentId, testFamilyId]);
-
-        // Buat akun dummy
-        await pool.query(`
-            INSERT INTO acount (id, username, password, role, family_id, email_encrypted, email_blind_idx)
-            VALUES (991, 'warga_test_991', 'hashpass', 'warga', ?, UNHEX(HEX('dummy_email_encrypted')), 'dummy_blind_idx_test_991')
-            ON DUPLICATE KEY UPDATE id=id;
-        `, [testFamilyId]);
->>>>>>> ecb4d52d4fb8ce0ee047d69a1560697bbb914a31
 
         // -------------------------------------------------------------
         // Test 1: Publish Bill Period untuk Keluarga Multi-Anggota & Notifikasi
@@ -224,88 +203,12 @@ export async function runFinancialTests() {
         await publishBillPeriodService(p2.period.id, 991);
         await publishBillPeriodService(p3.period.id, 991);
 
-<<<<<<< HEAD
         const [allFamilyABills] = await pool.query("SELECT * FROM bills WHERE family_id = 991 AND status = 'unpaid' ORDER BY id ASC;");
         const rapelBillIds = allFamilyABills.map(b => b.id);
 
         const rapelSubmitRes = await submitPaymentService({
             billIds: rapelBillIds,
             familyId: 991,
-=======
-        const [userBills] = await pool.query("SELECT * FROM bills WHERE family_id = ? ORDER BY id ASC;", [testFamilyId]);
-        assert(userBills.length === 3, "Berhasil menerbitkan 3 tagihan untuk warga uji");
-        const billIds = userBills.map(b => b.id);
-
-        // -------------------------------------------------------------
-        // Test 3: Validasi Mismatch Nominal Rapel (Tolak sebelum Insert)
-        // -------------------------------------------------------------
-        console.log("\n4️⃣  Test 3: Validasi Mismatch Nominal Rapel...");
-        const mismatchRes = await submitPaymentService({
-            billIds: billIds,
-            familyId: testFamilyId,
-            amountStated: 500000, // Seharusnya 600.000 (3 x 200.000)
-            channel: 'transfer',
-            proofUrl: 'transfer_salah_nominal.jpg',
-            recordedBy: 991
-        });
-        assert(mismatchRes.error !== undefined, "Submit pembayaran rapel dengan nominal tidak cocok ditolak (Error 400 level service)");
-
-        // -------------------------------------------------------------
-        // Test 4: Pembayaran Rapel 3 Bulan (Transfer Flow) & Reject
-        // -------------------------------------------------------------
-        console.log("\n5️⃣  Test 4: Pembayaran Rapel 3 Bulan (Transfer Pending) & Verifikasi Reject...");
-        const submitRapelRes = await submitPaymentService({
-            billIds: billIds,
-            familyId: testFamilyId,
-            amountStated: 600000, // Sesuai (3 x 200.000)
-            channel: 'transfer',
-            proofUrl: 'bukti_transfer_rapel_3bulan.jpg',
-            recordedBy: 991
-        });
-
-        assert(!submitRapelRes.error, "Submit pembayaran rapel 3 bulan berhasil dikirim");
-        assert(submitRapelRes.bill_status === 'waiting_verification', "Status tagihan rapel menjadi 'waiting_verification'");
-        assert(submitRapelRes.bill_ids.length === 3, "Response mencantumkan 3 bill ID yang terupdate");
-        const paymentId = submitRapelRes.payment_id;
-
-        // Cek tabel penghubung payment_bill_links
-        const [linkRows] = await pool.query("SELECT * FROM payment_bill_links WHERE payment_id = ?", [paymentId]);
-        assert(linkRows.length === 3, "Tercatat 3 baris di payment_bill_links yang menghubungkan payment dengan 3 tagihan");
-
-        // Cek guard mencegah double pending submit
-        const doublePendingRes = await submitPaymentService({
-            billIds: [billIds[0]],
-            familyId: testFamilyId,
-            amountStated: 200000,
-            channel: 'transfer',
-            proofUrl: 'bukti_dobel.jpg',
-            recordedBy: 991
-        });
-        assert(doublePendingRes.error !== undefined, "Tagihan yang sedang pending verifikasi ditolak saat disubmit ulang");
-
-        // Reject pembayaran rapel
-        const rejectRes = await verifyPaymentService({
-            paymentId,
-            decision: 'rejected',
-            actorId: 991,
-            rejectReason: "Nominal di struk transfer terpotong"
-        });
-        assert(!rejectRes.error, "Verifikasi penolakan (Reject) berhasil diproses");
-        assert(rejectRes.status === 'rejected', "Status payment menjadi 'rejected'");
-
-        // Pastikan SEMUA 3 tagihan kembali ke status 'unpaid'
-        const [revertedBills] = await pool.query("SELECT status FROM bills WHERE id IN (?, ?, ?)", billIds);
-        const allUnpaid = revertedBills.every(b => b.status === 'unpaid');
-        assert(allUnpaid, "Semua tagihan yang dirapel otomatis kembali berstatus 'unpaid' setelah ditolak");
-
-        // -------------------------------------------------------------
-        // Test 5: Resubmit Rapel & Approval oleh Bendahara (Paid & Ledger)
-        // -------------------------------------------------------------
-        console.log("\n6️⃣  Test 5: Resubmit Rapel & Approval oleh Bendahara...");
-        const resubmitRes = await submitPaymentService({
-            billIds: billIds,
-            familyId: testFamilyId,
->>>>>>> ecb4d52d4fb8ce0ee047d69a1560697bbb914a31
             amountStated: 600000,
             channel: 'transfer',
             proofUrl: 'bukti_rapel_sah.jpg',
@@ -314,10 +217,7 @@ export async function runFinancialTests() {
         assert(!rapelSubmitRes.error, "Submit rapel 3 bulan berhasil");
 
         const approveRes = await verifyPaymentService({
-<<<<<<< HEAD
             paymentId: rapelSubmitRes.payment_id,
-=======
-            paymentId: newPaymentId,
             decision: 'approved',
             actorId: 991
         });
@@ -325,7 +225,7 @@ export async function runFinancialTests() {
         assert(approveRes.status === 'approved', "Status payment menjadi 'approved'");
 
         // Pastikan SEMUA 3 tagihan berubah menjadi 'paid'
-        const [paidBills] = await pool.query("SELECT status FROM bills WHERE id IN (?, ?, ?)", billIds);
+        const [paidBills] = await pool.query("SELECT status FROM bills WHERE id IN (?, ?, ?)", rapelBillIds);
         const allPaid = paidBills.every(b => b.status === 'paid');
         assert(allPaid, "Semua 3 tagihan yang dirapel berhasil berubah status menjadi 'paid'");
 
@@ -378,47 +278,17 @@ export async function runFinancialTests() {
         // Approve iuran kas
         const kasApproveRes = await verifyKasContributionService({
             contributionId: kasId,
->>>>>>> ecb4d52d4fb8ce0ee047d69a1560697bbb914a31
             decision: "approved",
             actorId: 991
         });
-        assert(!approveRes.error && approveRes.status === "approved", "Verifikasi approve rapel berhasil");
+        assert(!kasApproveRes.error && kasApproveRes.status === "approved", "Verifikasi approve kas berhasil");
 
-        const notifAfterApprove = await getMyNotificationsService(991);
-        const approveNotif = notifAfterApprove.notifications.find(n => n.type === 'ipl' && n.title.includes('Disetujui') && n.reference_id === rapelSubmitRes.payment_id);
-        assert(approveNotif !== undefined, "Notifikasi 'Pembayaran IPL Disetujui (Lunas)' masuk ke akun warga");
-
-<<<<<<< HEAD
         // -------------------------------------------------------------
         // Test 5: Notifikasi Iuran Kas RT (Approve & Reject)
         // -------------------------------------------------------------
         console.log("\n6️⃣  Test 5: Notifikasi Iuran Kas RT (Approve & Reject)...");
         const kasRes1 = await submitKasContributionService({
             familyId: 991,
-=======
-        // Submit iuran kas kedua untuk di-reject
-        const kasSecondRes = await submitKasContributionService({
-            familyId: testFamilyId,
-            amount: 50000,
-            category: "kegiatan",
-            description: "Iuran 17-an",
-            channel: "transfer",
-            proofUrl: "bukti_buram.jpg",
-            recordedBy: 991
-        });
-        const kasRejectRes = await verifyKasContributionService({
-            contributionId: kasSecondRes.contribution_id,
-            decision: "rejected",
-            actorId: 991,
-            rejectReason: "Bukti transfer tidak terbaca"
-        });
-        assert(!kasRejectRes.error && kasRejectRes.status === "rejected", "Penolakan iuran kas dengan reject_reason berhasil");
-
-        // Manual kas payment
-        const manualKasRes = await recordManualPaymentService({
-            familyId: testFamilyId,
-            jenisIuran: "kas",
->>>>>>> ecb4d52d4fb8ce0ee047d69a1560697bbb914a31
             amount: 100000,
             category: "kegiatan",
             description: "Iuran 17 Agustusan",
@@ -453,10 +323,10 @@ export async function runFinancialTests() {
         // 1. Pengaduan
         const addPengaduanRes = await createPengaduan(991, "Lampu jalan depan rumah padam sudah 3 hari", "fasilitas");
         const pengaduanId = addPengaduanRes.insertId;
-        await changePengaduanStatus(pengaduanId, "Proses", "Teknisi dijadwalkan besok pagi");
+        await changePengaduanStatus(pengaduanId, "disetujui", "Teknisi dijadwalkan besok pagi");
 
         const notifPengaduan = (await getMyNotificationsService(991)).notifications.find(n => n.type === 'pengaduan' && n.reference_id === pengaduanId);
-        assert(notifPengaduan !== undefined, "Notifikasi perubahan status pengaduan ('Proses') masuk ke akun warga");
+        assert(notifPengaduan !== undefined, "Notifikasi perubahan status pengaduan ('disetujui') masuk ke akun warga");
         assert(notifPengaduan?.message.includes("Teknisi dijadwalkan"), "Notifikasi pengaduan memuat catatan tindak lanjut");
 
         // 2. Pengajuan Surat

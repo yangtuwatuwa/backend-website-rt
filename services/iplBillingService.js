@@ -220,7 +220,6 @@ export async function submitPaymentService({
     proofUrl = null,
     recordedBy = null
 }) {
-    // Normalisasi input billIds menjadi array number
     let targetBillIds = [];
     if (Array.isArray(billIds)) {
         targetBillIds = billIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
@@ -275,7 +274,7 @@ export async function submitPaymentService({
 
         for (const b of bills) {
             // Validasi cross-family: tagihan harus milik familyId yang login
-            if (familyId && String(b.family_id) !== String(targetFamilyId)) {
+            if (familyId && String(b.family_id) !== String(familyId)) {
                 await connection.rollback();
                 return { error: "Akses ditolak: Satu atau lebih tagihan yang dipilih bukan milik keluarga Anda!" };
             }

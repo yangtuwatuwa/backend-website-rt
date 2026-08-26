@@ -95,6 +95,7 @@ CREATE TABLE `acount` (
     `role` ENUM('rt', 'sekertaris', 'bendahara', 'warga', 'admin') NOT NULL,
     `family_id` INT NULL,
     `must_change_password` TINYINT(1) NOT NULL DEFAULT 1,
+    `is_verified` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY `uq_acount_email_blind_idx` (`email_blind_idx`),

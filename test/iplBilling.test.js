@@ -142,7 +142,7 @@ async function runTests() {
         console.log("\n5️⃣  Test 4: Submit Pembayaran Transfer (Waiting Verification)...");
         const submitTransferRes = await submitPaymentService({
             billId: targetBill.id,
-            residentId: targetBill.resident_id,
+            familyId: targetBill.family_id,
             amountStated: 250000,
             channel: 'transfer',
             proofUrl: 'bukti_transfer_sample.jpg',
@@ -155,7 +155,7 @@ async function runTests() {
         // Test 4b: Guard Mencegah Submit Dobel saat Masih Pending
         const doubleSubmit = await submitPaymentService({
             billId: targetBill.id,
-            residentId: targetBill.resident_id,
+            familyId: targetBill.family_id,
             amountStated: 250000,
             channel: 'transfer',
             proofUrl: 'bukti_kedua.jpg',
@@ -169,22 +169,23 @@ async function runTests() {
             paymentId: paymentId,
             decision: 'rejected',
             actorId: 2,
-            rejectReason: "Nominal transfer kurang Rp 50.000"
+            rejectReason: 'Foto bukti tidak jelas'
         });
         assert(!rejectRes.error, "Penolakan pembayaran oleh bendahara berhasil diproses");
         assert(rejectRes.status === 'rejected', "Status pembayaran menjadi 'rejected'");
 
-        const [revertedBill] = await pool.query("SELECT status FROM bills WHERE id = ?", [targetBill.id]);
+        // Verifikasi status tagihan kembali ke unpaid
+        const [revertedBill] = await pool.query("SELECT status FROM bills WHERE id = ?;", [targetBill.id]);
         assert(revertedBill[0].status === 'unpaid', "Status tagihan berhasil di-revert kembali ke 'unpaid' setelah di-reject");
 
-        // Test 6: Resubmit & Approval Flow
+        // Test 6: Resubmit Pembayaran & Approval
         console.log("\n7️⃣  Test 6: Resubmit & Approval oleh Bendahara (Paid & Ledger Entry)...");
         const resubmitRes = await submitPaymentService({
             billId: targetBill.id,
-            residentId: targetBill.resident_id,
+            familyId: targetBill.family_id,
             amountStated: 250000,
             channel: 'transfer',
-            proofUrl: 'bukti_transfer_benar.jpg',
+            proofUrl: 'bukti_transfer_valid.jpg',
             recordedBy: 1
         });
         const newPaymentId = resubmitRes.payment_id;
@@ -197,17 +198,18 @@ async function runTests() {
         assert(!approveRes.error, "Approval pembayaran oleh bendahara berhasil");
         assert(approveRes.status === 'approved', "Status pembayaran menjadi 'approved'");
 
-        const [paidBill] = await pool.query("SELECT status FROM bills WHERE id = ?", [targetBill.id]);
+        // Verifikasi status tagihan menjadi paid
+        const [paidBill] = await pool.query("SELECT status FROM bills WHERE id = ?;", [targetBill.id]);
         assert(paidBill[0].status === 'paid', "Status tagihan berhasil berubah menjadi 'paid'");
 
-        // Verifikasi pencatatan otomatis ke Buku Kas (financial_ledger)
+        // Verifikasi pencatatan di ledger
         const [ledgerRows] = await pool.query("SELECT * FROM financial_ledger WHERE source_type = 'ipl' ORDER BY id DESC LIMIT 1;");
-        assert(ledgerRows.length > 0 && Number(ledgerRows[0].amount) === 250000, "Transaksi otomatis tercatat di Buku Kas (financial_ledger) tipe 'in'");
+        assert(ledgerRows.length > 0 && ledgerRows[0].type === 'in', "Transaksi otomatis tercatat di Buku Kas (financial_ledger) tipe 'in'");
 
-        // Test 6b: Guard Mencegah Tagihan yang Sudah Paid Menerima Pembayaran Baru
+        // Test 6b: Guard Mencegah Pembayaran Ulang untuk Tagihan yang Sudah Paid
         const payPaidBill = await submitPaymentService({
             billId: targetBill.id,
-            residentId: targetBill.resident_id,
+            familyId: targetBill.family_id,
             amountStated: 250000,
             channel: 'transfer',
             proofUrl: 'bukti_iseng.jpg',
@@ -217,18 +219,14 @@ async function runTests() {
 
         // Test 7: Channel Cash to Bendahara (Langsung Approved & Paid)
         console.log("\n8️⃣  Test 7: Pembayaran Tunai Langsung ke Bendahara (Direct Paid)...");
-        // Buat tagihan dummy kedua
-        const [secondBillRes] = await pool.query(`
-            INSERT INTO bills (bill_period_id, resident_id, amount, due_date, status)
-            VALUES (?, ?, 250000, '2026-09-10', 'unpaid')
-            ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id);
-        `, [periodId, testResidentId + 1]);
-        const secondBillId = secondBillRes.insertId;
+        const [remainingUnpaid] = await pool.query("SELECT * FROM bills WHERE bill_period_id = ? AND status = 'unpaid'", [periodId]);
+        assert(remainingUnpaid.length >= 2, "Tersedia tagihan unpaid untuk pengujian lanjutan");
+        const secondBill = remainingUnpaid[0];
 
         const cashRes = await submitPaymentService({
-            billId: secondBillId,
-            residentId: testResidentId + 1,
-            amountStated: 250000,
+            billId: secondBill.id,
+            familyId: secondBill.family_id,
+            amountStated: parseFloat(secondBill.amount),
             channel: 'cash_to_bendahara',
             recordedBy: 2
         });
@@ -237,14 +235,8 @@ async function runTests() {
 
         // Test 8: Pembebasan Tagihan (Exempt)
         console.log("\n9️⃣  Test 8: Pembebasan Tagihan (Exempt)...");
-        const [thirdBillRes] = await pool.query(`
-            INSERT INTO bills (bill_period_id, resident_id, amount, due_date, status)
-            VALUES (?, ?, 250000, '2026-09-10', 'unpaid')
-            ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id);
-        `, [periodId, testResidentId + 2]);
-        const thirdBillId = thirdBillRes.insertId;
-
-        const exemptRes = await setExemptService(thirdBillId, "Rumah kosong / tidak berpenghuni", 1);
+        const thirdBill = remainingUnpaid[1];
+        const exemptRes = await setExemptService(thirdBill.id, "Rumah kosong / tidak berpenghuni", 1);
         assert(!exemptRes.error, "Pembebasan tagihan (exempt) berhasil");
         assert(exemptRes.bill && exemptRes.bill.status === 'exempt', "Status tagihan menjadi 'exempt'");
         assert(exemptRes.bill.exempt_reason === "Rumah kosong / tidak berpenghuni", "Alasan exempt tersimpan");

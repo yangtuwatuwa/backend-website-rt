@@ -32,11 +32,24 @@ export async function createWargaAccountController(req, res) {
 
         return res.status(201).json({
             response: 201,
-            data: {
+            success: true,
+            userId: account.userId || account.insertId,
+            insertId: account.insertId || account.userId,
+            username: account.username,
+            temporaryPassword: account.temporaryPassword || password,
+            output: {
+                userId: account.userId || account.insertId,
+                insertId: account.insertId || account.userId,
                 username: account.username,
                 temporaryPassword: account.temporaryPassword || password
             },
-            message: "Akun berhasil dibuat."
+            data: {
+                userId: account.userId || account.insertId,
+                insertId: account.insertId || account.userId,
+                username: account.username,
+                temporaryPassword: account.temporaryPassword || password
+            },
+            message: account.message || "Akun berhasil dibuat dan kode OTP verifikasi telah dikirim ke email warga."
         });
     } catch (err) {
         console.log(`[Error Create Warga Account]:`, err);
