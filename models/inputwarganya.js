@@ -6,13 +6,14 @@ export async function autoHealFamilyHeads() {
             SELECT f.id AS family_id, f.kepala_keluarga_id, w.id AS valid_head_id
             FROM family f
             LEFT JOIN warga w ON f.kepala_keluarga_id = w.id AND w.family_id = f.id
+                AND (w.status_data IS NULL OR w.status_data IN ('pending', 'diterima'))
         `)
 
         if (Array.isArray(families)) {
             for (const fam of families) {
                 if (!fam.valid_head_id) {
                     const [firstWarga] = await db.execute(
-                        "SELECT id FROM warga WHERE family_id = ? ORDER BY id ASC LIMIT 1",
+                        "SELECT id FROM warga WHERE family_id = ? AND (status_data IS NULL OR status_data IN ('pending', 'diterima')) ORDER BY id ASC LIMIT 1",
                         [fam.family_id]
                     )
                     if (Array.isArray(firstWarga) && firstWarga.length > 0) {
@@ -48,7 +49,7 @@ export async function warganya(nikk, nama, jenisKelamin, tglLahir, statusHidup, 
                     const currentHeadId = familyRows[0].kepala_keluarga_id
                     let isHeadValid = false
                     if (currentHeadId && currentHeadId !== 0) {
-                        const [checkHead] = await db.execute("SELECT id FROM warga WHERE id = ? AND family_id = ?", [currentHeadId, familyId])
+                        const [checkHead] = await db.execute("SELECT id FROM warga WHERE id = ? AND family_id = ? AND (status_data IS NULL OR status_data IN ('pending', 'diterima'))", [currentHeadId, familyId])
                         if (Array.isArray(checkHead) && checkHead.length > 0) {
                             isHeadValid = true
                         }
@@ -95,6 +96,7 @@ export async function getWargas() {
         LEFT JOIN family f ON w.family_id = f.id
         LEFT JOIN house h ON w.house_id = h.id
         LEFT JOIN acount a ON a.family_id = w.family_id
+        WHERE w.status_data IS NULL OR w.status_data IN ('pending', 'diterima')
     `
     try {
         const [hasilnya] = await db.execute(sqlcommand)
@@ -106,7 +108,7 @@ export async function getWargas() {
 }
 
 export async function getWargaById(id) {
-    const sqlcommand = "SELECT * FROM warga WHERE id = ?"
+    const sqlcommand = "SELECT * FROM warga WHERE id = ? AND (status_data IS NULL OR status_data IN ('pending', 'diterima'))"
     try {
         const [result] = await db.execute(sqlcommand, [id])
         return result[0];
@@ -155,7 +157,7 @@ export async function getPendingWarga() {
 
 
 export async function updateWargaStatus(id, status) {
-    const sqlcommand = "UPDATE warga SET status_data = ? WHERE id = ?"
+    const sqlcommand = "UPDATE warga SET status_data = ? WHERE id = ? AND (status_data IS NULL OR status_data IN ('pending', 'diterima'))"
     try {
         const [result] = await db.execute(sqlcommand, [status, id])
         return result;
@@ -173,7 +175,7 @@ export async function updateWargaFields(id, fields) {
     const values = Object.values(fields)
     values.push(id)
 
-    const sqlcommand = `UPDATE warga SET ${setClause} WHERE id = ?`
+    const sqlcommand = `UPDATE warga SET ${setClause} WHERE id = ? AND (status_data IS NULL OR status_data IN ('pending', 'diterima'))`
     try {
         const [result] = await db.execute(sqlcommand, values)
         return result
@@ -204,7 +206,7 @@ export async function isKepalaKeluarga(wargaId) {
  * @param {number} id - ID warga yang akan dihapus
  */
 export async function deleteWargaById(id) {
-    const sqlcommand = "DELETE FROM warga WHERE id = ?"
+    const sqlcommand = "UPDATE warga SET status_data = 'ditolak' WHERE id = ? AND (status_data IS NULL OR status_data IN ('pending', 'diterima'))"
     try {
         const [result] = await db.execute(sqlcommand, [id])
         return result
@@ -218,7 +220,7 @@ export async function deleteWargaById(id) {
  * Ambil daftar anggota keluarga lain dalam 1 KK (kecuali wargaId yang mau dihapus).
  */
 export async function getOtherFamilyMembers(familyId, excludeWargaId) {
-    const sqlcommand = "SELECT id, nama FROM warga WHERE family_id = ? AND id != ? ORDER BY id ASC"
+    const sqlcommand = "SELECT id, nama FROM warga WHERE family_id = ? AND id != ? AND (status_data IS NULL OR status_data IN ('pending', 'diterima')) ORDER BY id ASC"
     try {
         const [result] = await db.execute(sqlcommand, [familyId, excludeWargaId])
         return result
@@ -276,4 +278,4 @@ export async function updateFamilyNoKk(familyId, encryptedNoKk) {
     }
 }
 
-
+

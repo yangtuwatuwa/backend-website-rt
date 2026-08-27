@@ -294,9 +294,9 @@ export async function getKepalaKeluargaList() {
             f.id AS id,
             f.id AS family_id,
             w.id AS warga_id,
-            COALESCE(w.nama, (SELECT w2.nama FROM warga w2 WHERE w2.family_id = f.id ORDER BY w2.id ASC LIMIT 1), 'Tanpa Nama') AS nama
+            COALESCE(w.nama, (SELECT w2.nama FROM warga w2 WHERE w2.family_id = f.id AND (w2.status_data IS NULL OR w2.status_data IN ('pending', 'diterima')) ORDER BY w2.id ASC LIMIT 1), 'Tanpa Nama') AS nama
         FROM family f
-        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id
+        LEFT JOIN warga w ON f.kepala_keluarga_id = w.id AND (w.status_data IS NULL OR w.status_data IN ('pending', 'diterima'))
         ORDER BY nama ASC
     `;
     try {

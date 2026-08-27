@@ -5,8 +5,9 @@ import { emitSyncEvent } from "../utils/socket.js"
 import editResident from "../services/editedResident.js"
 import { listRumah } from "../services/inputHouse.js"
 import { getAccountById, getAccountByIdWithAuth } from "../models/login.js"
-import { getWargaById, isKepalaKeluarga, deleteWargaById, getOtherFamilyMembers, updateFamilyHead, updateWargaNik, updateFamilyNoKk } from "../models/inputwarganya.js"
+import { getWargaById, updateWargaNik, updateFamilyNoKk } from "../models/inputwarganya.js"
 import { getFamilyById, getPopulationStats, getKepalaKeluargaList } from "../models/resident.js"
+import { deleteWarga, WargaDeletionError } from "../services/wargaDeletionService.js"
 import { encryptEmails, decryptEmails } from "../helpers/ciihper.js"
 import { argonverify } from "../helpers/argon2.js"
 import { getHouseById } from "../models/houseWarga.js"
@@ -345,50 +346,24 @@ export async function getPopulationStatsController(req, res) {
 }
 
 /**
- * Hapus data warga berdasarkan ID.
- * RULES:
- * - Kepala keluarga TIDAK BOLEH dihapus (proteksi)
- * - Hanya bisa diakses oleh RT dan Sekretaris
- * - Warga harus exist di database
+ * DELETE /api/warga/:id (juga dipakai legacy route /admin/datawarga/:id).
+ * Semua rule keluarga, akun, soft-delete, cascade terakhir, dan audit ditangani
+ * service dalam satu transaksi; controller hanya menerjemahkan error bisnis ke HTTP.
  */
 export async function deleteWargaController(req, res) {
     const { id } = req.params
     console.log(`[Request Delete Warga] targetId: ${id}, byUserId: ${req.user.id}, role: ${req.user.role}`)
 
     try {
-        // 1. Cek apakah warga dengan ID ini ada
-        const warga = await getWargaById(id)
-        if (!warga || (typeof warga === "string" && warga.startsWith("error"))) {
-            console.log(`[Response Delete Warga] Gagal: Warga id ${id} tidak ditemukan`)
-            return res.status(404).json({ 
-                success: false,
-                pesan: "Data warga tidak ditemukan" 
-            })
-        }
-
-        // 2. Cek apakah warga ini terdaftar sebagai kepala_keluarga_id di tabel family
-        const isHead = await isKepalaKeluarga(id)
-        if (isHead && warga.family_id) {
-            // Cek apakah ada anggota keluarga lain di KK ini
-            const otherMembers = await getOtherFamilyMembers(warga.family_id, id)
-            if (otherMembers && otherMembers.length > 0) {
-                // Auto-healing: Pindahkan kepala_keluarga_id ke anggota keluarga lain (warga paling lama)
-                const newHead = otherMembers[0]
-                await updateFamilyHead(warga.family_id, newHead.id)
-                console.log(`[Auto-Heal Delete] Warga ID ${id} terdaftar sebagai Kepala Keluarga. Kepala keluarga dipindahkan ke ${newHead.nama} (ID ${newHead.id}).`)
-            } else {
-                // Satu-satunya anggota & Kepala Keluarga -> Blokir untuk mencegah orphan data / KK kosong
-                console.log(`[Response Delete Warga] Gagal: Warga id ${id} adalah satu-satunya Kepala Keluarga di KK ini`)
-                return res.status(403).json({ 
-                    success: false,
-                    pesan: "Warga ini adalah satu-satunya Kepala Keluarga di KK ini. Hapus atau alihkan Kartu Keluarga (KK) terlebih dahulu." 
-                })
-            }
-        }
-
-        // 3. Hapus warga aman tanpa orphan data
-        const result = await deleteWargaById(id)
-        console.log(`[Response Delete Warga] Sukses: Warga id ${id} (${warga.nama}) berhasil dihapus`)
+        const result = await deleteWarga(id, {
+            actorId: req.user.id,
+            // JWT lama hanya membawa id/role; service akan menyimpan fallback yang
+            // tetap mengidentifikasi account bila username tidak tersedia.
+            actorUsername: req.user.username,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent")
+        })
+        console.log(`[Response Delete Warga] Sukses: Warga id ${id} (${result.nama}) berhasil dihapus`)
 
         emitSyncEvent("warga")
 
@@ -396,14 +371,23 @@ export async function deleteWargaController(req, res) {
             success: true,
             response: 200,
             data: {
-                deletedId: Number(id),
-                nama: warga.nama,
-                family_id: warga.family_id
+                ...result
             },
-            message: `Data warga "${warga.nama}" berhasil dihapus dari sistem`
+            message: result.familyDeleted
+                ? `Data warga "${result.nama}" dan KK yang sudah kosong berhasil dibersihkan dari sistem`
+                : `Data warga "${result.nama}" berhasil dihapus dari sistem`
         })
 
     } catch (err) {
+        if (err instanceof WargaDeletionError) {
+            console.log(`[Response Delete Warga] Ditolak: ${err.code}`)
+            return res.status(err.status).json({
+                success: false,
+                code: err.code,
+                pesan: err.message,
+                details: err.details
+            })
+        }
         console.log(`[Error Delete Warga]:`, err)
         return res.status(500).json({ 
             success: false,
