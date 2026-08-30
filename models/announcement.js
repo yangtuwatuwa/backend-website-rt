@@ -1,9 +1,9 @@
 import db from "../config/sqlconfig.js"
 
-export async function inputAnnouncement(judul, isi) {
+export async function inputAnnouncement(judul, isi, executor = db) {
     const sqlcommand = "INSERT INTO announcement (id, judul, isi) VALUES (NULL, ?, ?)"
     try {
-        const [hasilnya] = await db.execute(sqlcommand, [judul, isi])
+        const [hasilnya] = await executor.execute(sqlcommand, [judul, isi])
         return hasilnya
     } catch (err) {
         console.log("error bagian inputAnnouncement: " + err)
@@ -11,10 +11,10 @@ export async function inputAnnouncement(judul, isi) {
     }
 }
 
-export async function getAnnouncements() {
+export async function getAnnouncements(executor = db) {
     const sqlcommand = "SELECT * FROM announcement"
     try {
-        const [hasilnya] = await db.execute(sqlcommand)
+        const [hasilnya] = await executor.execute(sqlcommand)
         return hasilnya
     } catch (err) {
         console.log("error bagian getAnnouncements: " + err)
@@ -22,10 +22,10 @@ export async function getAnnouncements() {
     }
 }
 
-export async function getAnnouncementById(id) {
+export async function getAnnouncementById(id, executor = db) {
     const sqlcommand = "SELECT * FROM announcement WHERE id = ?"
     try {
-        const [hasilnya] = await db.execute(sqlcommand, [id])
+        const [hasilnya] = await executor.execute(sqlcommand, [id])
         return hasilnya;
     } catch (err) {
         console.log("error bagian getAnnouncementById: " + err)
@@ -33,10 +33,10 @@ export async function getAnnouncementById(id) {
     }
 }
 
-export async function updateAnnouncement(id, judul, isi) {
+export async function updateAnnouncement(id, judul, isi, executor = db) {
     const sqlcommand = "UPDATE announcement SET judul = ?, isi = ? WHERE id = ?"
     try {
-        const [hasilnya] = await db.execute(sqlcommand, [judul, isi, id])
+        const [hasilnya] = await executor.execute(sqlcommand, [judul, isi, id])
         return hasilnya
     } catch (err) {
         console.log("error bagian updateAnnouncement: " + err)
@@ -44,10 +44,10 @@ export async function updateAnnouncement(id, judul, isi) {
     }
 }
 
-export async function deleteAnnouncement(id) {
+export async function deleteAnnouncement(id, executor = db) {
     const sqlcommand = "DELETE FROM announcement WHERE id = ?"
     try {
-        const [hasilnya] = await db.execute(sqlcommand, [id])
+        const [hasilnya] = await executor.execute(sqlcommand, [id])
         return hasilnya
     } catch (err) {
         console.log("error bagian deleteAnnouncement: " + err)

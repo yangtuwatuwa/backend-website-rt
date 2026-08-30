@@ -1,9 +1,10 @@
 import db from "../config/sqlconfig.js"
 import { autoHealFamilyHeads } from "./inputwarganya.js"
 
-export async function getWarganya() {
+export async function getWarganya(executor = db) {
+    const client = executor || db
 
-    await autoHealFamilyHeads()
+    await autoHealFamilyHeads(client)
     const sqlcommand = `
         SELECT 
             f.id AS family_id, 
@@ -25,7 +26,7 @@ export async function getWarganya() {
         LEFT JOIN acount a ON a.family_id = f.id
     `
     try {
-        const [result] = await db.execute(sqlcommand)
+        const [result] = await client.execute(sqlcommand)
         return result
     } catch (err) {
         console.log(err)
@@ -33,20 +34,22 @@ export async function getWarganya() {
     }
 }
 
-export async function editedWarga(id, encryptedNik) {
+export async function editedWarga(id, encryptedNik, executor = db) {
+   const client = executor || db
    const sqlcommand = "UPDATE family SET no_kk = ? WHERE id = ?"
    try {
-   const [result] = await db.execute(sqlcommand,[encryptedNik, id]) 
+   const [result] = await client.execute(sqlcommand,[encryptedNik, id])
    return result 
    } catch (err) {
     return "salah di bagian kk"
    }
 }
 
-export async function getFamilyById(id) {
+export async function getFamilyById(id, executor = db) {
+    const client = executor || db
     const sqlcommand = "SELECT * FROM family WHERE id = ?"
     try {
-        const [result] = await db.execute(sqlcommand, [id])
+        const [result] = await client.execute(sqlcommand, [id])
         return result[0];
     } catch (err) {
         console.log(err)
@@ -54,20 +57,21 @@ export async function getFamilyById(id) {
     }
 }
 
-export async function getPopulationStats() {
+export async function getPopulationStats(executor = db) {
+    const client = executor || db
     try {
         // 1. Total Penduduk & Kepala Keluarga
-        const [wargaRows] = await db.execute(
+        const [wargaRows] = await client.execute(
             "SELECT COUNT(id) AS total_penduduk FROM warga WHERE status_data = 'diterima' OR status_data IS NULL"
         );
-        const [familyRows] = await db.execute(
+        const [familyRows] = await client.execute(
             "SELECT COUNT(id) AS total_kk FROM family"
         );
         const totalPenduduk = Number(wargaRows[0]?.total_penduduk || 0);
         const totalKK = Number(familyRows[0]?.total_kk || 0);
 
         // 2. Rasio Gender
-        const [genderRows] = await db.execute(
+        const [genderRows] = await client.execute(
             "SELECT jenis_kelamin, COUNT(id) AS count FROM warga WHERE status_data = 'diterima' OR status_data IS NULL GROUP BY jenis_kelamin"
         );
         let countLaki = 0;
@@ -86,8 +90,8 @@ export async function getPopulationStats() {
         const persentasePerempuan = totalPenduduk > 0 ? Math.round((countPerempuan / totalPenduduk) * 100) : 0;
 
         // 3. Status Hunian & Kepemilikan Rumah
-        const [houseTotalRows] = await db.execute("SELECT COUNT(id) AS total_rumah FROM house");
-        const [houseGroupRows] = await db.execute("SELECT status, COUNT(id) AS count FROM house GROUP BY status");
+        const [houseTotalRows] = await client.execute("SELECT COUNT(id) AS total_rumah FROM house");
+        const [houseGroupRows] = await client.execute("SELECT status, COUNT(id) AS count FROM house GROUP BY status");
         
         const totalRumah = Number(houseTotalRows[0]?.total_rumah || 0);
         const detailStatusRumah = {};
@@ -124,7 +128,7 @@ export async function getPopulationStats() {
         Object.assign(statusKepemilikanRumah, detailStatusRumah);
 
         // 4. Distribusi Kelompok Usia
-        const [ageRows] = await db.execute(`
+        const [ageRows] = await client.execute(`
             SELECT 
                 SUM(CASE WHEN umur BETWEEN 0 AND 12 THEN 1 ELSE 0 END) AS anak,
                 SUM(CASE WHEN umur BETWEEN 13 AND 20 THEN 1 ELSE 0 END) AS remaja,
@@ -163,10 +167,10 @@ export async function getPopulationStats() {
         };
 
         // 5. Arus Keuangan Kas RT & 5 Transaksi Terakhir
-        const [settingRows] = await db.execute("SELECT previous_balance FROM financial_settings WHERE id = 1");
+        const [settingRows] = await client.execute("SELECT previous_balance FROM financial_settings WHERE id = 1");
         const prevBal = Number(settingRows[0]?.previous_balance || 0);
 
-        const [ledgerTotals] = await db.execute(`
+        const [ledgerTotals] = await client.execute(`
             SELECT 
                 SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END) AS income,
                 SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END) AS expense
@@ -180,7 +184,7 @@ export async function getPopulationStats() {
         const rasioIncome = totalArus > 0 ? Math.round((totalIncome / totalArus) * 100) : 0;
         const rasioExpense = totalArus > 0 ? Math.round((totalExpense / totalArus) * 100) : 0;
 
-        const [latestTransactions] = await db.execute(
+        const [latestTransactions] = await client.execute(
             "SELECT id, type, amount, source_type, description, transaction_date FROM financial_ledger ORDER BY transaction_date DESC, id DESC LIMIT 5"
         );
 
@@ -205,7 +209,7 @@ export async function getPopulationStats() {
         const currentMonth = new Date().getMonth() + 1;
         const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
-        const [paidRows] = await db.execute(`
+        const [paidRows] = await client.execute(`
             SELECT bp.period_month AS month, COUNT(DISTINCT b.family_id) AS paid_families
             FROM bills b
             JOIN bill_periods bp ON b.bill_period_id = bp.id
@@ -287,8 +291,9 @@ export async function getPopulationStats() {
     }
 }
 
-export async function getKepalaKeluargaList() {
-    await autoHealFamilyHeads();
+export async function getKepalaKeluargaList(executor = db) {
+    const client = executor || db
+    await autoHealFamilyHeads(client);
     const sqlcommand = `
         SELECT 
             f.id AS id,
@@ -300,7 +305,7 @@ export async function getKepalaKeluargaList() {
         ORDER BY nama ASC
     `;
     try {
-        const [result] = await db.execute(sqlcommand);
+        const [result] = await client.execute(sqlcommand);
         return result;
     } catch (err) {
         console.log("error getKepalaKeluargaList:", err);

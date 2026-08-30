@@ -1,9 +1,9 @@
 import pool from "../config/sqlconfig.js";
 
-export async function checkUsernameExistsExceptUser(username, userId) {
+export async function checkUsernameExistsExceptUser(username, userId, executor = pool) {
     const sql = "SELECT id FROM acount WHERE username = ? AND id != ?";
     try {
-        const [rows] = await pool.execute(sql, [username, userId]);
+        const [rows] = await executor.execute(sql, [username, userId]);
         return rows.length > 0;
     } catch (err) {
         console.log("error checkUsernameExistsExceptUser:", err);
@@ -11,7 +11,7 @@ export async function checkUsernameExistsExceptUser(username, userId) {
     }
 }
 
-export async function updateAccountProfile(userId, { username, encryptedEmail, blindIdx, passwordHash }) {
+export async function updateAccountProfile(userId, { username, encryptedEmail, blindIdx, passwordHash }, executor = pool) {
     let fields = [];
     let values = [];
 
@@ -39,7 +39,7 @@ export async function updateAccountProfile(userId, { username, encryptedEmail, b
     const sql = `UPDATE acount SET ${fields.join(", ")} WHERE id = ?`;
 
     try {
-        const [result] = await pool.execute(sql, values);
+        const [result] = await executor.execute(sql, values);
         return result;
     } catch (err) {
         if (err && (err.code === 'ER_DUP_ENTRY' || err.errno === 1062)) {

@@ -2,7 +2,12 @@ import db from "../config/sqlconfig.js";
 import { initIplBillingTables } from "../utils/migrateIplBills.js";
 
 let tablesInitialized = false;
-async function ensureTables() {
+async function ensureTables(executor = db) {
+    // DDL is intentionally limited to the default production pool. Injected
+    // executors (especially a test transaction) must never run migrations
+    // outside the transaction that the caller controls.
+    if (executor !== db) return;
+
     if (!tablesInitialized) {
         try {
             await initIplBillingTables();
@@ -37,10 +42,10 @@ export function computeBillStatus(bill) {
  * Batch insert tagihan keluarga saat periode di-publish.
  * Menggunakan INSERT IGNORE / UNIQUE(bill_period_id, family_id) untuk menjamin idempotensi.
  */
-export async function createBatchBills(billsData, connection = null) {
-    await ensureTables();
+export async function createBatchBills(billsData, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     if (!Array.isArray(billsData) || billsData.length === 0) return { affectedRows: 0 };
-    const client = connection || db;
 
     const values = [];
     const placeholders = billsData.map(b => {
@@ -66,9 +71,9 @@ export async function createBatchBills(billsData, connection = null) {
 /**
  * Ambil detail tagihan berdasarkan ID
  */
-export async function getBillById(id, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function getBillById(id, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
@@ -102,11 +107,11 @@ export async function getBillById(id, connection = null) {
 /**
  * Ambil detail tagihan dengan Pessimistic Lock (FOR UPDATE) dalam transaksi
  */
-export async function getBillByIdForUpdate(id, connection) {
-    await ensureTables();
+export async function getBillByIdForUpdate(id, executor) {
+    await ensureTables(executor);
     const sql = "SELECT * FROM bills WHERE id = ? FOR UPDATE";
     try {
-        const [rows] = await connection.execute(sql, [id]);
+        const [rows] = await executor.execute(sql, [id]);
         return rows[0] || null;
     } catch (err) {
         console.error("error getBillByIdForUpdate:", err);
@@ -117,8 +122,9 @@ export async function getBillByIdForUpdate(id, connection) {
 /**
  * Ambil daftar tagihan milik seorang warga (resident_id)
  */
-export async function getBillsByResident(residentId, { status, year, month } = {}) {
-    await ensureTables();
+export async function getBillsByResident(residentId, { status, year, month } = {}, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`.
     let sql = `
@@ -155,7 +161,7 @@ export async function getBillsByResident(residentId, { status, year, month } = {
     sql += " ORDER BY bp.period_year DESC, bp.period_month DESC, b.id DESC";
 
     try {
-        const [rows] = await db.execute(sql, params);
+        const [rows] = await client.execute(sql, params);
         return rows.map(computeBillStatus);
     } catch (err) {
         console.error("error getBillsByResident:", err);
@@ -166,8 +172,9 @@ export async function getBillsByResident(residentId, { status, year, month } = {
 /**
  * Ambil daftar tagihan untuk seluruh anggota dalam satu KK (family_id)
  */
-export async function getBillsByFamilyId(familyId, { status, year, month } = {}) {
-    await ensureTables();
+export async function getBillsByFamilyId(familyId, { status, year, month } = {}, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`.
     let sql = `
@@ -204,7 +211,7 @@ export async function getBillsByFamilyId(familyId, { status, year, month } = {})
     sql += " ORDER BY bp.period_year DESC, bp.period_month DESC, b.id DESC";
 
     try {
-        const [rows] = await db.execute(sql, params);
+        const [rows] = await client.execute(sql, params);
         return rows.map(computeBillStatus);
     } catch (err) {
         console.error("error getBillsByFamilyId:", err);
@@ -215,8 +222,8 @@ export async function getBillsByFamilyId(familyId, { status, year, month } = {})
 /**
  * Ambil daftar tagihan dengan Pessimistic Lock (FOR UPDATE) untuk banyak ID dalam transaksi
  */
-export async function getBillsByIdsForUpdate(ids, connection) {
-    await ensureTables();
+export async function getBillsByIdsForUpdate(ids, executor) {
+    await ensureTables(executor);
     if (!Array.isArray(ids) || ids.length === 0) return [];
     const placeholders = ids.map(() => "?").join(", ");
     const sql = `
@@ -228,7 +235,7 @@ export async function getBillsByIdsForUpdate(ids, connection) {
         FOR UPDATE
     `;
     try {
-        const [rows] = await connection.execute(sql, ids);
+        const [rows] = await executor.execute(sql, ids);
         return rows;
     } catch (err) {
         console.error("error getBillsByIdsForUpdate:", err);
@@ -239,8 +246,9 @@ export async function getBillsByIdsForUpdate(ids, connection) {
 /**
  * Ambil daftar tagihan dalam suatu periode tertentu (untuk dashboard Bendahara/RT)
  */
-export async function getBillsByPeriodId(billPeriodId, { status, limit = 100, offset = 0 } = {}) {
-    await ensureTables();
+export async function getBillsByPeriodId(billPeriodId, { status, limit = 100, offset = 0 } = {}, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     let sql = `
@@ -284,7 +292,7 @@ export async function getBillsByPeriodId(billPeriodId, { status, limit = 100, of
     params.push(String(limit), String(offset));
 
     try {
-        const [rows] = await db.execute(sql, params);
+        const [rows] = await client.execute(sql, params);
         return rows.map(computeBillStatus);
     } catch (err) {
         console.error("error getBillsByPeriodId:", err);
@@ -295,9 +303,9 @@ export async function getBillsByPeriodId(billPeriodId, { status, limit = 100, of
 /**
  * Update status tagihan (misal: 'unpaid' -> 'waiting_verification' -> 'paid')
  */
-export async function updateBillStatus(id, status, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function updateBillStatus(id, status, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const sql = "UPDATE bills SET status = ? WHERE id = ?";
     try {
         const [result] = await client.execute(sql, [status, id]);
@@ -311,10 +319,10 @@ export async function updateBillStatus(id, status, connection = null) {
 /**
  * Batch update status tagihan untuk banyak ID
  */
-export async function updateMultipleBillStatus(ids, status, connection = null) {
-    await ensureTables();
+export async function updateMultipleBillStatus(ids, status, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     if (!Array.isArray(ids) || ids.length === 0) return { affectedRows: 0 };
-    const client = connection || db;
     const placeholders = ids.map(() => "?").join(", ");
     const sql = `UPDATE bills SET status = ? WHERE id IN (${placeholders})`;
     try {
@@ -329,9 +337,9 @@ export async function updateMultipleBillStatus(ids, status, connection = null) {
 /**
  * Set status tagihan menjadi 'exempt' (dibebaskan)
  */
-export async function setBillExempt(id, reason, actorId, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function setBillExempt(id, reason, actorId, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const sql = `
         UPDATE bills 
         SET status = 'exempt', exempt_reason = ?, exempt_by = ?, exempt_at = NOW() 
@@ -349,8 +357,9 @@ export async function setBillExempt(id, reason, actorId, connection = null) {
 /**
  * Ambil ringkasan rekapitulasi tagihan per periode
  */
-export async function getBillsSummaryByPeriodId(billPeriodId) {
-    await ensureTables();
+export async function getBillsSummaryByPeriodId(billPeriodId, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const sql = `
         SELECT 
             COUNT(id) AS total_bills,
@@ -366,7 +375,7 @@ export async function getBillsSummaryByPeriodId(billPeriodId) {
         WHERE bill_period_id = ?
     `;
     try {
-        const [rows] = await db.execute(sql, [billPeriodId]);
+        const [rows] = await client.execute(sql, [billPeriodId]);
         const summary = rows[0] || {};
         return {
             total_bills: Number(summary.total_bills || 0),

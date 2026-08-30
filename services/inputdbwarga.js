@@ -3,7 +3,7 @@ import { encryptEmails, decryptEmails } from "../helpers/ciihper.js";
 import { maskData } from "../utils/masking.js";
 import { calculateAge } from "../helpers/ageCalculator.js";
 
-export async function warganyain (nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, status = "diterima", isKepalaKeluarga = false){
+export async function warganyain (nik, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, status = "diterima", isKepalaKeluarga = false, executor = undefined){
     try {
         // Enkripsi data sensitif sebelum masuk ke DB
         const encryptedNik      = encryptEmails(String(nik))
@@ -13,16 +13,16 @@ export async function warganyain (nik, nama, jenisKelamin, tglLahir, statusHidup
         // Hitung umur otomatis dari tglLahir jika tidak dikirim atau untuk konsistensi
         const finalUmur = calculateAge(tglLahir, umur);
 
-        const hasildbnya = await warganya(encryptedNik, nama, jenisKelamin, encryptedTglLahir, statusHidup, encryptedNoHp, finalUmur, familyId, houseId, status, isKepalaKeluarga)
+        const hasildbnya = await warganya(encryptedNik, nama, jenisKelamin, encryptedTglLahir, statusHidup, encryptedNoHp, finalUmur, familyId, houseId, status, isKepalaKeluarga, executor)
         return hasildbnya;
     } catch (err) {
         return "error input warganya diservice: " + err 
     }
 }
 
-export async function listWarga() {
+export async function listWarga(executor = undefined) {
     try {
-        const hasilnya = await getWargas()
+        const hasilnya = await getWargas(executor)
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return hasilnya
         }
@@ -56,9 +56,9 @@ export async function listWarga() {
     }
 }
 
-export async function listPendingWarga() {
+export async function listPendingWarga(executor = undefined) {
     try {
-        const hasilnya = await getPendingWarga()
+        const hasilnya = await getPendingWarga(executor)
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return hasilnya
         }
@@ -103,14 +103,14 @@ export async function listPendingWarga() {
 }
 
 
-export async function verifyWarga(id, status) {
+export async function verifyWarga(id, status, executor = undefined) {
     const allowedStatus = ["diterima", "ditolak"]
     if (!allowedStatus.includes(status)) {
         return "error: status harus diterima atau ditolak masbro"
     }
 
     try {
-        const hasildbnya = await updateWargaStatus(id, status)
+        const hasildbnya = await updateWargaStatus(id, status, executor)
         return hasildbnya
     } catch (err) {
         console.log(err)
@@ -118,7 +118,7 @@ export async function verifyWarga(id, status) {
     }
 }
 
-export async function updateWargaService(id, data) {
+export async function updateWargaService(id, data, executor = undefined) {
     const fieldsToUpdate = {};
     if (data.nama !== undefined) fieldsToUpdate.nama = data.nama;
     if (data.jenisKelamin !== undefined) fieldsToUpdate.jenis_kelamin = data.jenisKelamin;
@@ -132,7 +132,7 @@ export async function updateWargaService(id, data) {
     if (data.noHp !== undefined) fieldsToUpdate.no_hp = encryptEmails(String(data.noHp));
 
     try {
-        const hasilnya = await updateWargaFields(id, fieldsToUpdate);
+        const hasilnya = await updateWargaFields(id, fieldsToUpdate, executor);
         return hasilnya;
     } catch (err) {
         console.log(err);
@@ -140,14 +140,14 @@ export async function updateWargaService(id, data) {
     }
 }
 
-export async function searchWargaService(searchQuery) {
+export async function searchWargaService(searchQuery, executor = undefined) {
     try {
         const query = String(searchQuery).toLowerCase().trim()
         if (!query) {
             return []
         }
 
-        const allWargas = await getWargas()
+        const allWargas = await getWargas(executor)
         if (typeof allWargas === "string" && allWargas.startsWith("error")) {
             return allWargas
         }

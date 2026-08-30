@@ -2,7 +2,11 @@ import db from "../config/sqlconfig.js";
 import { initIplBillingTables } from "../utils/migrateIplBills.js";
 
 let tablesInitialized = false;
-async function ensureTables() {
+async function ensureTables(executor) {
+    if (executor !== db) {
+        return;
+    }
+
     if (!tablesInitialized) {
         try {
             await initIplBillingTables();
@@ -16,22 +20,23 @@ async function ensureTables() {
 /**
  * Buat entri sumbangan/iuran Kas baru (Scope: family_id)
  */
-export async function createKasContribution({
-    familyId,
-    residentId, // Fallback parameter
-    amount,
-    category,
-    description = "-",
-    channel = 'transfer',
-    proofUrl = null,
-    status = 'pending',
-    rejectReason = null,
-    recordedBy = null,
-    verifiedBy = null,
-    verifiedAt = null
-}, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function createKasContribution(data, executor = db) {
+    const client = executor || db;
+    const {
+        familyId,
+        residentId, // Fallback parameter
+        amount,
+        category,
+        description = "-",
+        channel = 'transfer',
+        proofUrl = null,
+        status = 'pending',
+        rejectReason = null,
+        recordedBy = null,
+        verifiedBy = null,
+        verifiedAt = null
+    } = data;
+    await ensureTables(client);
     const targetFamilyId = familyId || residentId;
     const sql = `
         INSERT INTO kas_contributions (
@@ -63,9 +68,9 @@ export async function createKasContribution({
 /**
  * Ambil entri kas_contributions berdasarkan ID
  */
-export async function getKasContributionById(id, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function getKasContributionById(id, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
@@ -96,11 +101,11 @@ export async function getKasContributionById(id, connection = null) {
 /**
  * Ambil entri kas_contributions dengan Pessimistic Lock (FOR UPDATE)
  */
-export async function getKasContributionByIdForUpdate(id, connection) {
-    await ensureTables();
+export async function getKasContributionByIdForUpdate(id, executor) {
+    await ensureTables(executor);
     const sql = "SELECT * FROM kas_contributions WHERE id = ? FOR UPDATE";
     try {
-        const [rows] = await connection.execute(sql, [id]);
+        const [rows] = await executor.execute(sql, [id]);
         return rows[0] || null;
     } catch (err) {
         console.error("error getKasContributionByIdForUpdate:", err);
@@ -111,8 +116,9 @@ export async function getKasContributionByIdForUpdate(id, connection) {
 /**
  * Ambil daftar iuran Kas yang menunggu verifikasi (Pending)
  */
-export async function getPendingKasContributions({ limit = 50, offset = 0 } = {}) {
-    await ensureTables();
+export async function getPendingKasContributions({ limit = 50, offset = 0 } = {}, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
@@ -132,7 +138,7 @@ export async function getPendingKasContributions({ limit = 50, offset = 0 } = {}
         LIMIT ? OFFSET ?
     `;
     try {
-        const [rows] = await db.execute(sql, [String(limit), String(offset)]);
+        const [rows] = await client.execute(sql, [String(limit), String(offset)]);
         return rows;
     } catch (err) {
         console.error("error getPendingKasContributions:", err);
@@ -143,8 +149,9 @@ export async function getPendingKasContributions({ limit = 50, offset = 0 } = {}
 /**
  * Ambil riwayat sumbangan kas milik seorang warga (resident_id)
  */
-export async function getKasContributionsByResident(residentId) {
-    await ensureTables();
+export async function getKasContributionsByResident(residentId, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`.
     const sql = `
@@ -161,7 +168,7 @@ export async function getKasContributionsByResident(residentId) {
         ORDER BY k.created_at DESC
     `;
     try {
-        const [rows] = await db.execute(sql, [residentId]);
+        const [rows] = await client.execute(sql, [residentId]);
         return rows;
     } catch (err) {
         console.error("error getKasContributionsByResident:", err);
@@ -172,8 +179,9 @@ export async function getKasContributionsByResident(residentId) {
 /**
  * Ambil riwayat sumbangan kas untuk satu Kartu Keluarga (family_id)
  */
-export async function getKasContributionsByFamily(familyId) {
-    await ensureTables();
+export async function getKasContributionsByFamily(familyId, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`.
     const sql = `
@@ -190,7 +198,7 @@ export async function getKasContributionsByFamily(familyId) {
         ORDER BY k.created_at DESC
     `;
     try {
-        const [rows] = await db.execute(sql, [familyId]);
+        const [rows] = await client.execute(sql, [familyId]);
         return rows;
     } catch (err) {
         console.error("error getKasContributionsByFamily:", err);
@@ -201,8 +209,9 @@ export async function getKasContributionsByFamily(familyId) {
 /**
  * Ambil daftar audit seluruh iuran Kas (untuk Bendahara & RT)
  */
-export async function getKasAuditList({ category, status, channel, limit = 100, offset = 0 } = {}) {
-    await ensureTables();
+export async function getKasAuditList({ category, status, channel, limit = 100, offset = 0 } = {}, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     let sql = `
@@ -240,7 +249,7 @@ export async function getKasAuditList({ category, status, channel, limit = 100, 
     params.push(String(limit), String(offset));
 
     try {
-        const [rows] = await db.execute(sql, params);
+        const [rows] = await client.execute(sql, params);
         return rows;
     } catch (err) {
         console.error("error getKasAuditList:", err);
@@ -251,9 +260,9 @@ export async function getKasAuditList({ category, status, channel, limit = 100, 
 /**
  * Update keputusan verifikasi iuran kas (approved / rejected)
  */
-export async function updateKasVerification(id, { status, rejectReason = null, verifiedBy = null, verifiedAt = new Date() }, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function updateKasVerification(id, { status, rejectReason = null, verifiedBy = null, verifiedAt = new Date() }, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const sql = `
         UPDATE kas_contributions
         SET status = ?, reject_reason = ?, verified_by = ?, verified_at = ?

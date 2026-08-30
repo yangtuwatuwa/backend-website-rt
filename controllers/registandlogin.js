@@ -1,17 +1,18 @@
 import { register, loginUser } from "../services/bisnisRegisterAndLogin.js";
 import { generateJwt } from "../helpers/jwttoken.js";
 export async function regist(req, res) {
-    const { username, password, email, role, family_id, familyId } = req.body
+    const { username, password, email, family_id, familyId } = req.body
     const targetFamilyId = family_id || familyId || null
-    console.log(`[Request Register] username: ${username}, email: ${email}, role: ${role}, familyId: ${targetFamilyId}`)
+    console.log(`[Request Register] username: ${username}, email: ${email}, role: warga, familyId: ${targetFamilyId}`)
 
     // ---- Validation ----
-    if (!username || !password || !email || !role) {
+    if (!username || !password || !email) {
         console.log('[Error Register] payload incomplete')
         return res.status(400).json({ pesan: 'payload register tidak lengkap' })
     }
 
-    const hasilnya = await register(username, password, email, role, targetFamilyId)
+    // Registrasi publik hanya untuk warga. Abaikan role apa pun dari client.
+    const hasilnya = await register(username, password, email, "warga", targetFamilyId)
     console.log(`[Response Register] hasil:`, hasilnya)
 
     // Jika service mengembalikan error string atau object dengan success false, kirim 400

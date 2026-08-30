@@ -7,7 +7,8 @@ import crypto from "crypto";
 /**
  * Service Payment Gateway Abstraksi (Midtrans / Xendit / Sandbox Ready)
  */
-export async function createPaymentSessionService({ familyId, amount, paymentType = "ipl", billIds = [], category = "sosial", description = "" }) {
+export async function createPaymentSessionService({ familyId, amount, paymentType = "ipl", billIds = [], category = "sosial", description = "" }, executor = pool) {
+    const client = executor || pool;
     try {
         const orderId = `RT-${paymentType.toUpperCase()}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         const targetAmount = Number(amount);
@@ -37,7 +38,7 @@ export async function createPaymentSessionService({ familyId, amount, paymentTyp
             let targetBillIds = Array.isArray(billIds) ? billIds.filter(id => Boolean(id)) : [];
             if (targetBillIds.length === 0) {
                 // Cari bill unpaid untuk family ini
-                const [bills] = await pool.execute(`
+                const [bills] = await client.execute(`
                     SELECT b.id, b.amount FROM bills b
                     WHERE b.family_id = ? AND b.status = 'unpaid'
                     ORDER BY b.due_date ASC LIMIT 1
@@ -45,7 +46,7 @@ export async function createPaymentSessionService({ familyId, amount, paymentTyp
                 if (bills.length > 0) targetBillIds = [bills[0].id];
             }
 
-            const [payRes] = await pool.execute(
+            const [payRes] = await client.execute(
                 `INSERT INTO payments (family_id, total_amount, channel, proof_url, status, created_at)
                  VALUES (?, ?, 'transfer', ?, 'pending', NOW())`,
                 [familyId, targetAmount, `order_id:${orderId}`]
@@ -53,16 +54,16 @@ export async function createPaymentSessionService({ familyId, amount, paymentTyp
             const paymentId = payRes.insertId;
 
             for (const bId of targetBillIds) {
-                await pool.execute(
+                await client.execute(
                     "INSERT INTO payment_bill_links (payment_id, bill_id, allocated_amount) VALUES (?, ?, ?)",
                     [paymentId, bId, targetAmount / (targetBillIds.length || 1)]
                 );
             }
             if (targetBillIds.length > 0) {
-                await updateMultipleBillStatus(targetBillIds, 'waiting_verification');
+                await updateMultipleBillStatus(targetBillIds, 'waiting_verification', client);
             }
         } else {
-            await pool.execute(
+            await client.execute(
                 `INSERT INTO kas_contributions (family_id, amount, category, description, channel, proof_url, status, created_at)
                  VALUES (?, ?, ?, ?, 'transfer', ?, 'pending', NOW())`,
                 [familyId, targetAmount, category || "sosial", description || "Payment Gateway Kas RT", `order_id:${orderId}`]
@@ -88,7 +89,8 @@ export async function createPaymentSessionService({ familyId, amount, paymentTyp
 /**
  * Handler Webhook Notification Callback dari Payment Gateway (Midtrans / Xendit / Mock)
  */
-export async function handlePaymentWebhookService(payload) {
+export async function handlePaymentWebhookService(payload, executor = pool) {
+    const client = executor || pool;
     try {
         const { order_id, orderId, transaction_status, transactionStatus, status, gross_amount, amount } = payload;
         const targetOrderId = order_id || orderId;
@@ -106,34 +108,34 @@ export async function handlePaymentWebhookService(payload) {
         const newPaymentStatus = isSuccess ? "approved" : (isFailed ? "rejected" : "pending");
 
         // 1. Update payments & linked bills
-        const [payRows] = await pool.execute("SELECT * FROM payments WHERE proof_url LIKE ?", [`%${targetOrderId}%`]);
+        const [payRows] = await client.execute("SELECT * FROM payments WHERE proof_url LIKE ?", [`%${targetOrderId}%`]);
         if (payRows && payRows.length > 0) {
             const row = payRows[0];
-            await pool.execute("UPDATE payments SET status = ?, verified_at = NOW() WHERE id = ?", [newPaymentStatus, row.id]);
+            await client.execute("UPDATE payments SET status = ?, verified_at = NOW() WHERE id = ?", [newPaymentStatus, row.id]);
 
-            const [links] = await pool.execute("SELECT bill_id FROM payment_bill_links WHERE payment_id = ?", [row.id]);
+            const [links] = await client.execute("SELECT bill_id FROM payment_bill_links WHERE payment_id = ?", [row.id]);
             const billIds = links.map(l => l.bill_id);
 
             if (isSuccess) {
-                if (billIds.length > 0) await updateMultipleBillStatus(billIds, 'paid');
+                if (billIds.length > 0) await updateMultipleBillStatus(billIds, 'paid', client);
                 if (row.status !== "approved") {
                     await writeLedgerEntry({
                         type: "in",
                         amount: row.total_amount,
                         sourceType: "ipl",
                         description: `Pembayaran IPL Via Gateway (${targetOrderId})`
-                    });
+                    }, client);
                 }
             } else if (isFailed) {
-                if (billIds.length > 0) await updateMultipleBillStatus(billIds, 'unpaid');
+                if (billIds.length > 0) await updateMultipleBillStatus(billIds, 'unpaid', client);
             }
         }
 
         // 2. Update kas_contributions
-        const [kasRows] = await pool.execute("SELECT * FROM kas_contributions WHERE proof_url LIKE ?", [`%${targetOrderId}%`]);
+        const [kasRows] = await client.execute("SELECT * FROM kas_contributions WHERE proof_url LIKE ?", [`%${targetOrderId}%`]);
         if (kasRows && kasRows.length > 0) {
             const row = kasRows[0];
-            await pool.execute("UPDATE kas_contributions SET status = ?, verified_at = NOW() WHERE id = ?", [newPaymentStatus, row.id]);
+            await client.execute("UPDATE kas_contributions SET status = ?, verified_at = NOW() WHERE id = ?", [newPaymentStatus, row.id]);
 
             if (isSuccess && row.status !== "approved") {
                 await writeLedgerEntry({
@@ -141,7 +143,7 @@ export async function handlePaymentWebhookService(payload) {
                     amount: row.amount,
                     sourceType: "kas",
                     description: `Sumbangan Kas Via Gateway (${targetOrderId})`
-                });
+                }, client);
             }
         }
 

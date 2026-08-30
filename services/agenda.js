@@ -1,6 +1,6 @@
 import { createAgenda, getAgendas, getAgendaById, updateAgenda, deleteAgenda } from "../models/agenda.js"
 
-export async function addAgenda(kategori, judul, deskripsi, tanggal, waktu, tempat) {
+export async function addAgenda(kategori, judul, deskripsi, tanggal, waktu, tempat, executor = undefined) {
     try {
         if (!kategori) return "error: kategori tidak boleh kosong masbro"
         if (!judul) return "error: judul tidak boleh kosong masbro"
@@ -8,7 +8,7 @@ export async function addAgenda(kategori, judul, deskripsi, tanggal, waktu, temp
         if (!waktu) return "error: waktu tidak boleh kosong masbro"
         if (!tempat) return "error: tempat tidak boleh kosong masbro"
         
-        const result = await createAgenda(kategori, judul, deskripsi || "", tanggal, waktu, tempat)
+        const result = await createAgenda(kategori, judul, deskripsi || "", tanggal, waktu, tempat, executor)
         return result
     } catch (err) {
         console.log("error di service addAgenda:", err)
@@ -16,9 +16,9 @@ export async function addAgenda(kategori, judul, deskripsi, tanggal, waktu, temp
     }
 }
 
-export async function listAllAgendas(search = "") {
+export async function listAllAgendas(search = "", executor = undefined) {
     try {
-        const result = await getAgendas(search)
+        const result = await getAgendas(search, executor)
         return result
     } catch (err) {
         console.log("error di service listAllAgendas:", err)
@@ -26,9 +26,9 @@ export async function listAllAgendas(search = "") {
     }
 }
 
-export async function editAgenda(id, dataToUpdate) {
+export async function editAgenda(id, dataToUpdate, executor = undefined) {
     try {
-        const existing = await getAgendaById(id)
+        const existing = await getAgendaById(id, executor)
         if (!existing || existing === "error") {
             return "error: agenda tidak ditemukan mas"
         }
@@ -46,7 +46,7 @@ export async function editAgenda(id, dataToUpdate) {
             return "error: tidak ada data baru yang dikirim untuk diupdate"
         }
         
-        const result = await updateAgenda(id, cleanData)
+        const result = await updateAgenda(id, cleanData, executor)
         return result
     } catch (err) {
         console.log("error di service editAgenda:", err)
@@ -54,14 +54,14 @@ export async function editAgenda(id, dataToUpdate) {
     }
 }
 
-export async function removeAgenda(id) {
+export async function removeAgenda(id, executor = undefined) {
     try {
-        const existing = await getAgendaById(id)
+        const existing = await getAgendaById(id, executor)
         if (!existing || existing === "error") {
             return "error: agenda tidak ditemukan mas"
         }
         
-        const result = await deleteAgenda(id)
+        const result = await deleteAgenda(id, executor)
         return result
     } catch (err) {
         console.log("error di service removeAgenda:", err)

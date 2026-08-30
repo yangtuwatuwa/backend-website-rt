@@ -2,17 +2,49 @@ import pool from "../config/sqlconfig.js";
 import { encryptEmails, decryptEmails } from "../helpers/ciihper.js";
 import { calculateAge } from "../helpers/ageCalculator.js";
 
-export async function registerResidentOnlyService(houseData, familyData, wargaData) {
-    const conn = await pool.getConnection();
+let registerResidentOnlySavepointCounter = 0;
+
+export async function registerResidentOnlyService(houseData, familyData, wargaData, executor = undefined) {
+    const ownsTransaction = !executor;
+    const conn = executor || await pool.getConnection();
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_register_resident_only_${++registerResidentOnlySavepointCounter}`;
+    let transactionStarted = false;
+    let savepointCreated = false;
+
+    async function ensureMutationScope() {
+        if (!ownsTransaction && !savepointCreated) {
+            await conn.query(`SAVEPOINT ${savepointName}`);
+            savepointCreated = true;
+        }
+    }
+
     try {
-        await conn.beginTransaction();
+        if (ownsTransaction) {
+            await conn.beginTransaction();
+            transactionStarted = true;
+        }
 
         // 1. Resolve House (Existing House ID atau Create New House)
         let houseId = houseData.houseId || houseData.house_id || houseData.id;
         if (houseId) {
-            const [existingHouse] = await conn.execute("SELECT id FROM house WHERE id = ?", [houseId]);
+            const [existingHouse] = await conn.execute(
+                "SELECT id FROM house WHERE id = ? FOR UPDATE",
+                [houseId]
+            );
             if (!existingHouse || existingHouse.length === 0) {
                 throw new Error(`Data rumah dengan ID ${houseId} tidak ditemukan`);
+            }
+
+            // Gunakan lock order yang sama dengan registerFamilyService agar dua
+            // flow registrasi paralel tidak dapat memakai rumah yang sama.
+            const [occupyingFamilies] = await conn.execute(
+                "SELECT id FROM family WHERE house_id = ? LIMIT 1 FOR UPDATE",
+                [houseId]
+            );
+            if (occupyingFamilies && occupyingFamilies.length > 0) {
+                throw new Error(`Rumah dengan ID ${houseId} sudah digunakan oleh keluarga lain`);
             }
         } else {
             const { blok, nomor, alamat, status: houseStatus = "pribadi" } = houseData;
@@ -23,6 +55,7 @@ export async function registerResidentOnlyService(houseData, familyData, wargaDa
             const encryptedNomor = encryptEmails(String(nomor).trim());
             const encryptedAlamat = encryptEmails(String(alamat).trim());
 
+            await ensureMutationScope();
             const [houseResult] = await conn.execute(
                 "INSERT INTO house (id, blok, nomor, alamat, status) VALUES (NULL, ?, ?, ?, ?)",
                 [encryptedBlok, encryptedNomor, encryptedAlamat, houseStatus]
@@ -51,6 +84,7 @@ export async function registerResidentOnlyService(houseData, familyData, wargaDa
         }
 
         const encryptedKK = encryptEmails(cleanedNoKK);
+        await ensureMutationScope();
         const [familyResult] = await conn.execute(
             "INSERT INTO family (id, no_kk, house_id, kepala_keluarga_id) VALUES (NULL, ?, ?, NULL)",
             [encryptedKK, houseId]
@@ -101,7 +135,13 @@ export async function registerResidentOnlyService(houseData, familyData, wargaDa
             [wargaId, familyId]
         );
 
-        await conn.commit();
+        if (ownsTransaction) {
+            await conn.commit();
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            await conn.query(`RELEASE SAVEPOINT ${savepointName}`);
+            savepointCreated = false;
+        }
 
         return {
             houseId,
@@ -110,10 +150,32 @@ export async function registerResidentOnlyService(houseData, familyData, wargaDa
         };
 
     } catch (err) {
-        await conn.rollback();
+        if (transactionStarted) {
+            try {
+                await conn.rollback();
+            } catch (rollbackErr) {
+                console.log("[Error rollback registerResidentOnlyService]:", rollbackErr.message || rollbackErr);
+            }
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            try {
+                await conn.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            } catch (rollbackErr) {
+                console.log("[Error rollback savepoint registerResidentOnlyService]:", rollbackErr.message || rollbackErr);
+            }
+
+            try {
+                await conn.query(`RELEASE SAVEPOINT ${savepointName}`);
+            } catch (releaseErr) {
+                console.log("[Error release savepoint registerResidentOnlyService]:", releaseErr.message || releaseErr);
+            }
+        }
+
         console.log("[Error registerResidentOnlyService]:", err.message || err);
         throw err;
     } finally {
-        conn.release();
+        if (ownsTransaction) {
+            conn.release();
+        }
     }
 }

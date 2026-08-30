@@ -1,5 +1,7 @@
 import { requestOtpService, verifyOtpService } from "../services/otpService.js";
 
+const SHOULD_LOG_PLAINTEXT_OTP = process.env.NODE_ENV !== 'production';
+
 /**
  * Controller untuk meminta pengiriman kode OTP ke email (Request / Resend OTP)
  * Endpoint: POST /auth/request-otp
@@ -50,7 +52,11 @@ export async function verifyOtpController(req, res) {
   const inputOtp = otp || otpCode;
   const targetPurpose = purpose || 'VERIFICATION';
 
-  console.log(`[Verify OTP] userId: ${userId}, inputOtp: ${inputOtp}, purpose: ${targetPurpose}`);
+  if (SHOULD_LOG_PLAINTEXT_OTP) {
+    console.log(`[Verify OTP] userId: ${userId}, inputOtp: ${inputOtp}, purpose: ${targetPurpose}`);
+  } else {
+    console.log(`[Verify OTP] userId: ${userId}, purpose: ${targetPurpose}`);
+  }
 
   if (!userId || !inputOtp) {
     console.log('[Error Verify OTP] userId atau kode OTP tidak diisi');

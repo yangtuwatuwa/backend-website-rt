@@ -18,7 +18,7 @@ import pool from "../config/sqlconfig.js";
 /**
  * Pencatatan Pengeluaran Kas RT (Expense)
  */
-export async function recordExpenseService(amount, sourceType, description, receiptFile = null) {
+export async function recordExpenseService(amount, sourceType, description, receiptFile = null, executor = pool) {
     const allowedExpenses = ["kebersihan", "keamanan", "taman", "operasional_rt", "kematian", "sosial", "kegiatan", "lainnya"];
     const cleanType = String(sourceType || "lainnya").toLowerCase().trim();
     const targetType = allowedExpenses.includes(cleanType) ? cleanType : "lainnya";
@@ -30,7 +30,7 @@ export async function recordExpenseService(amount, sourceType, description, rece
             sourceType: targetType,
             description,
             receiptFile
-        });
+        }, executor);
         return result;
     } catch (err) {
         console.error("error recordExpenseService:", err);
@@ -41,7 +41,7 @@ export async function recordExpenseService(amount, sourceType, description, rece
 /**
  * Pencatatan Pemasukan Kas RT Non-Iuran (Donasi, Hibah, Subsidi, dll)
  */
-export async function recordIncomeService(amount, sourceType, description) {
+export async function recordIncomeService(amount, sourceType, description, executor = pool) {
     const cleanType = String(sourceType).toLowerCase().trim();
     
     // Map kategori input ke nilai ENUM yang didukung database
@@ -65,7 +65,7 @@ export async function recordIncomeService(amount, sourceType, description) {
             amount,
             sourceType: dbSourceType,
             description: finalDescription
-        });
+        }, executor);
         return result;
     } catch (err) {
         console.error("error recordIncomeService:", err);
@@ -76,11 +76,11 @@ export async function recordIncomeService(amount, sourceType, description) {
 /**
  * Ringkasan Arus Kas Bulanan
  */
-export async function getFinancialSummaryService(year = new Date().getFullYear()) {
+export async function getFinancialSummaryService(year = new Date().getFullYear(), executor = pool) {
     try {
-        const summary = await getMonthlyFinancialSummary(year);
-        const stats = await getLedgerStats();
-        const settings = await getFinancialSettings();
+        const summary = await getMonthlyFinancialSummary(year, executor);
+        const stats = await getLedgerStats(executor);
+        const settings = await getFinancialSettings(executor);
         return {
             year: parseInt(year),
             previous_balance: settings ? settings.previous_balance : 0,
@@ -97,15 +97,15 @@ export async function getFinancialSummaryService(year = new Date().getFullYear()
 /**
  * Statistik Dashboard Finansial & Kas RT
  */
-export async function getDashboardStatsService() {
+export async function getDashboardStatsService(executor = pool) {
     try {
-        const wargas = await getWargas();
+        const wargas = await getWargas(executor);
         const totalWarga = Array.isArray(wargas) ? wargas.length : 0;
 
-        const settings = await getFinancialSettings();
+        const settings = await getFinancialSettings(executor);
         const previousBalance = settings ? settings.previous_balance : 0;
 
-        const ledgerStats = await getLedgerStats();
+        const ledgerStats = await getLedgerStats(executor);
         const income = ledgerStats ? parseInt(ledgerStats.total_income) || 0 : 0;
         const expense = ledgerStats ? parseInt(ledgerStats.total_expense) || 0 : 0;
 
@@ -127,9 +127,9 @@ export async function getDashboardStatsService() {
 /**
  * Pelacakan Tunggakan IPL Warga
  */
-export async function getTrackingService(month, year) {
+export async function getTrackingService(month, year, executor = pool) {
     try {
-        const result = await getArrearsTracking(month, year);
+        const result = await getArrearsTracking(month, year, executor);
         if (!Array.isArray(result)) {
             return result;
         }
@@ -163,8 +163,9 @@ export async function recordManualPaymentService({
     description,
     paymentDate,
     recordedBy = null
-}) {
+}, executor = undefined) {
     try {
+        const client = executor || pool;
         const isIpl = (jenisIuran === "ipl" || jenisIuran === "kebersihan" || jenisIuran === "iuran_ipl");
 
         if (isIpl) {
@@ -175,7 +176,7 @@ export async function recordManualPaymentService({
                 const targetMonth = Number(month || new Date().getMonth() + 1);
                 const targetYear = Number(year || new Date().getFullYear());
 
-                const [foundBills] = await pool.execute(`
+                const [foundBills] = await client.execute(`
                     SELECT b.id, b.amount 
                     FROM bills b
                     JOIN bill_periods bp ON b.bill_period_id = bp.id
@@ -200,7 +201,7 @@ export async function recordManualPaymentService({
                 channel: "cash_to_bendahara",
                 proofUrl: "manual_cash_recorded",
                 recordedBy
-            });
+            }, executor);
 
             if (paymentResult.error) {
                 return "error: " + paymentResult.error;
@@ -217,11 +218,11 @@ export async function recordManualPaymentService({
                 familyId,
                 amount,
                 category: category || "sosial",
-                description: description || `Pencatatan Kas RT Manual KK ID ${cleanFamilyId}`,
+                description: description || `Pencatatan Kas RT Manual KK ID ${familyId}`,
                 channel: "cash_to_bendahara",
                 proofUrl: "manual_cash_recorded",
                 recordedBy
-            });
+            }, executor);
 
             if (kasResult.error) {
                 return "error: " + kasResult.error;

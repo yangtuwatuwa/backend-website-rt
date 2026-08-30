@@ -5,9 +5,9 @@ import { argonhash, argonverify } from "../helpers/argon2.js";
 import { SAFE_COLUMNS_SQL } from "../helpers/sanitizeUser.js";
 import pool from "../config/sqlconfig.js";
 
-export async function getMyAccountService(userId) {
+export async function getMyAccountService(userId, executor = pool) {
     try {
-        const rows = await getAccountById(userId);
+        const rows = await getAccountById(userId, executor);
         if (!rows || rows === "error" || rows.length === 0) {
             return "error: Akun tidak ditemukan";
         }
@@ -37,11 +37,11 @@ export async function getMyAccountService(userId) {
     }
 }
 
-export async function updateMyAccountService(userId, { username, email, oldPassword, newPassword, password }) {
+export async function updateMyAccountService(userId, { username, email, oldPassword, newPassword, password }, executor = pool) {
     const targetNewPassword = newPassword || password;
     try {
         // Ambil data user DENGAN password (butuh untuk verifikasi password lama)
-        const rows = await getAccountByIdWithAuth(userId);
+        const rows = await getAccountByIdWithAuth(userId, executor);
         if (!rows || rows === "error" || rows.length === 0) {
             return "error: Akun tidak ditemukan";
         }
@@ -62,7 +62,7 @@ export async function updateMyAccountService(userId, { username, email, oldPassw
 
         // 2. Jika ganti username, cek keunikan
         if (username && username.trim() !== currentUser.username) {
-            const isTaken = await checkUsernameExistsExceptUser(username.trim(), userId);
+            const isTaken = await checkUsernameExistsExceptUser(username.trim(), userId, executor);
             if (isTaken) {
                 return "error: Username tersebut sudah digunakan oleh pengguna lain";
             }
@@ -85,25 +85,25 @@ export async function updateMyAccountService(userId, { username, email, oldPassw
             encryptedEmail,
             blindIdx,
             passwordHash
-        });
+        }, executor);
 
         // 5. Ambil data terbaru yang sudah ter-update
-        return await getMyAccountService(userId);
+        return await getMyAccountService(userId, executor);
     } catch (err) {
         console.log("error updateMyAccountService:", err);
         return "error karena: " + (err.message || err);
     }
 }
 
-export async function updateAccountByAdminService({ accountId, familyId, username, email, password }) {
+export async function updateAccountByAdminService({ accountId, familyId, username, email, password }, executor = pool) {
     try {
         let targetUser = null;
         if (accountId) {
-            const rows = await getAccountById(accountId);
+            const rows = await getAccountById(accountId, executor);
             if (rows && rows.length > 0) targetUser = rows[0];
         } else if (familyId) {
             // Query TANPA password — admin gak perlu password user untuk update
-            const [rows] = await pool.execute(`SELECT ${SAFE_COLUMNS_SQL} FROM acount WHERE family_id = ?`, [familyId]);
+            const [rows] = await executor.execute(`SELECT ${SAFE_COLUMNS_SQL} FROM acount WHERE family_id = ?`, [familyId]);
             if (rows && rows.length > 0) targetUser = rows[0];
         }
 
@@ -117,7 +117,7 @@ export async function updateAccountByAdminService({ accountId, familyId, usernam
         }
 
         if (username && username.trim() !== targetUser.username) {
-            const isTaken = await checkUsernameExistsExceptUser(username.trim(), targetUser.id);
+            const isTaken = await checkUsernameExistsExceptUser(username.trim(), targetUser.id, executor);
             if (isTaken) {
                 return "error: Username tersebut sudah digunakan oleh pengguna lain";
             }
@@ -138,9 +138,9 @@ export async function updateAccountByAdminService({ accountId, familyId, usernam
             encryptedEmail,
             blindIdx,
             passwordHash
-        });
+        }, executor);
 
-        return await getMyAccountService(targetUser.id);
+        return await getMyAccountService(targetUser.id, executor);
     } catch (err) {
         console.log("error updateAccountByAdminService:", err);
         return "error karena: " + (err.message || err);

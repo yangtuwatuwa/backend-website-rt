@@ -7,12 +7,12 @@ import db from "../config/sqlconfig.js"
  * Menggabungkan semua statistik dashboard landing page ke dalam
  * satu SELECT dengan scalar subqueries agar efisien dan hemat rate limit.
  */
-export async function getDashboardSummary() {
+export async function getDashboardSummary(executor = db) {
     const currentYear = new Date().getFullYear()
     const currentMonth = new Date().getMonth() + 1
 
     try {
-        const [rows] = await db.execute(`
+        const [rows] = await executor.execute(`
             SELECT
                 -- Kependudukan
                 (SELECT COUNT(id) FROM warga WHERE status_data = 'diterima' OR status_data IS NULL) AS total_penduduk,

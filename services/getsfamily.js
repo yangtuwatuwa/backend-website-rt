@@ -3,9 +3,9 @@ import { decryptEmails } from "../helpers/ciihper.js"
 import { maskData } from "../utils/masking.js"
 import { calculateAge } from "../helpers/ageCalculator.js"
 
-export default async function family(id) {
+export default async function family(id, executor = undefined) {
     try {
-        const hasilnya = await dbfamily(id)
+        const hasilnya = await dbfamily(id, executor)
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return hasilnya
         }

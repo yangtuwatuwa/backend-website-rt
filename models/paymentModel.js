@@ -2,7 +2,13 @@ import db from "../config/sqlconfig.js";
 import { initIplBillingTables } from "../utils/migrateIplBills.js";
 
 let tablesInitialized = false;
-async function ensureTables() {
+let createPaymentSavepointCounter = 0;
+
+async function ensureTables(executor = db) {
+    // Keep migrations on the default production pool. An injected executor is
+    // controlled by its caller and must not leak DDL outside that transaction.
+    if (executor !== db) return;
+
     if (!tablesInitialized) {
         try {
             await initIplBillingTables();
@@ -29,53 +35,86 @@ export async function createPaymentWithLinks({
     verifiedBy = null,
     verifiedAt = null,
     billAllocations = [] // [{ billId, allocatedAmount }]
-}, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+}, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const targetFamilyId = familyId || residentId;
+    const usesInjectedExecutor = client !== db;
+    const savepointName = usesInjectedExecutor
+        ? `sp_create_payment_${++createPaymentSavepointCounter}`
+        : null;
+    let savepointCreated = false;
 
-    // 1. Insert header payments
-    const sqlPayment = `
-        INSERT INTO payments (
-            family_id, total_amount, channel, proof_url, 
-            status, reject_reason, recorded_by, verified_by, verified_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    const [payResult] = await client.execute(sqlPayment, [
-        targetFamilyId,
-        totalAmount,
-        channel,
-        proofUrl,
-        status,
-        rejectReason,
-        recordedBy,
-        verifiedBy,
-        verifiedAt
-    ]);
-    const paymentId = payResult.insertId;
-
-    // 2. Insert links ke tabel payment_bill_links
-    if (Array.isArray(billAllocations) && billAllocations.length > 0) {
-        for (const alloc of billAllocations) {
-            await client.execute(
-                "INSERT INTO payment_bill_links (payment_id, bill_id, allocated_amount) VALUES (?, ?, ?)",
-                [paymentId, alloc.billId, alloc.allocatedAmount]
-            );
+    try {
+        if (savepointName) {
+            await client.query(`SAVEPOINT ${savepointName}`);
+            savepointCreated = true;
         }
-    }
 
-    return {
-        insertId: paymentId,
-        paymentId
-    };
+        // 1. Insert header payments
+        const sqlPayment = `
+            INSERT INTO payments (
+                family_id, total_amount, channel, proof_url,
+                status, reject_reason, recorded_by, verified_by, verified_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        const [payResult] = await client.execute(sqlPayment, [
+            targetFamilyId,
+            totalAmount,
+            channel,
+            proofUrl,
+            status,
+            rejectReason,
+            recordedBy,
+            verifiedBy,
+            verifiedAt
+        ]);
+        const paymentId = payResult.insertId;
+
+        // 2. Insert links ke tabel payment_bill_links
+        if (Array.isArray(billAllocations) && billAllocations.length > 0) {
+            for (const alloc of billAllocations) {
+                await client.execute(
+                    "INSERT INTO payment_bill_links (payment_id, bill_id, allocated_amount) VALUES (?, ?, ?)",
+                    [paymentId, alloc.billId, alloc.allocatedAmount]
+                );
+            }
+        }
+
+        if (savepointCreated) {
+            await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+            savepointCreated = false;
+        }
+
+        return {
+            insertId: paymentId,
+            paymentId
+        };
+    } catch (err) {
+        if (savepointCreated) {
+            try {
+                await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            } catch (rollbackErr) {
+                console.error("error rollback savepoint createPaymentWithLinks:", rollbackErr);
+            }
+
+            try {
+                await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+            } catch (releaseErr) {
+                console.error("error release savepoint createPaymentWithLinks:", releaseErr);
+            }
+        }
+
+        throw err;
+    }
 }
 
 /**
  * Ambil payment berdasarkan ID lengkap dengan rincian bills yang terhubung
  */
-export async function getPaymentById(id, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function getPaymentById(id, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
@@ -112,11 +151,11 @@ export async function getPaymentById(id, connection = null) {
 /**
  * Ambil payment dengan kunci Pessimistic Lock (FOR UPDATE) dalam transaksi
  */
-export async function getPaymentByIdForUpdate(id, connection) {
-    await ensureTables();
+export async function getPaymentByIdForUpdate(id, executor) {
+    await ensureTables(executor);
     const sql = "SELECT * FROM payments WHERE id = ? FOR UPDATE";
     try {
-        const [rows] = await connection.execute(sql, [id]);
+        const [rows] = await executor.execute(sql, [id]);
         return rows[0] || null;
     } catch (err) {
         console.error("error getPaymentByIdForUpdate:", err);
@@ -127,9 +166,9 @@ export async function getPaymentByIdForUpdate(id, connection) {
 /**
  * Ambil rincian link tagihan untuk suatu payment
  */
-export async function getPaymentLinksByPaymentId(paymentId, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function getPaymentLinksByPaymentId(paymentId, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const sql = `
         SELECT pbl.id AS link_id, pbl.payment_id, pbl.bill_id, pbl.allocated_amount,
                b.amount AS bill_amount, b.due_date AS bill_due_date, b.status AS bill_status,
@@ -154,9 +193,9 @@ export async function getPaymentLinksByPaymentId(paymentId, connection = null) {
 /**
  * Cek apakah sebuah bill_id sedang terikat di payment yang masih pending
  */
-export async function isBillInPendingPayment(billId, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function isBillInPendingPayment(billId, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const sql = `
         SELECT p.id
         FROM payments p
@@ -176,9 +215,9 @@ export async function isBillInPendingPayment(billId, connection = null) {
 /**
  * Cek apakah sebuah tagihan sudah memiliki payment yang berstatus 'approved'
  */
-export async function hasApprovedPayment(billId, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function hasApprovedPayment(billId, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const sql = `
         SELECT p.id
         FROM payments p
@@ -198,8 +237,9 @@ export async function hasApprovedPayment(billId, connection = null) {
 /**
  * Ambil riwayat pembayaran untuk satu bill_id tertentu
  */
-export async function getPaymentsByBillId(billId) {
-    await ensureTables();
+export async function getPaymentsByBillId(billId, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const sql = `
         SELECT p.*, pbl.allocated_amount,
                rec.username AS recorded_by_username,
@@ -212,7 +252,7 @@ export async function getPaymentsByBillId(billId) {
         ORDER BY p.id DESC
     `;
     try {
-        const [rows] = await db.execute(sql, [billId]);
+        const [rows] = await client.execute(sql, [billId]);
         return rows;
     } catch (err) {
         console.error("error getPaymentsByBillId:", err);
@@ -223,8 +263,9 @@ export async function getPaymentsByBillId(billId) {
 /**
  * Ambil daftar pembayaran pending (menunggu verifikasi) untuk Bendahara
  */
-export async function getPendingPaymentsList({ limit = 50, offset = 0 } = {}) {
-    await ensureTables();
+export async function getPendingPaymentsList({ limit = 50, offset = 0 } = {}, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     const sql = `
@@ -244,11 +285,11 @@ export async function getPendingPaymentsList({ limit = 50, offset = 0 } = {}) {
         LIMIT ? OFFSET ?
     `;
     try {
-        const [payments] = await db.execute(sql, [String(limit), String(offset)]);
+        const [payments] = await client.execute(sql, [String(limit), String(offset)]);
         
         // Populate rincian bills untuk setiap payment
         for (const pay of payments) {
-            pay.bills = await getPaymentLinksByPaymentId(pay.id);
+            pay.bills = await getPaymentLinksByPaymentId(pay.id, client);
         }
         return payments;
     } catch (err) {
@@ -260,8 +301,9 @@ export async function getPendingPaymentsList({ limit = 50, offset = 0 } = {}) {
 /**
  * Ambil riwayat audit seluruh pembayaran (untuk RT / Superadmin / Bendahara)
  */
-export async function getPaymentAuditList({ limit = 100, offset = 0, channel, status, billPeriodId } = {}) {
-    await ensureTables();
+export async function getPaymentAuditList({ limit = 100, offset = 0, channel, status, billPeriodId } = {}, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     // TODO: alias `resident_name`/`resident_nik` bersifat sementara untuk backward-compatibility.
     // Hapus setelah frontend dipastikan sudah pindah ke `kepala_keluarga_nama`/`kepala_keluarga_nik`.
     let sql = `
@@ -301,9 +343,9 @@ export async function getPaymentAuditList({ limit = 100, offset = 0, channel, st
     params.push(String(limit), String(offset));
 
     try {
-        const [payments] = await db.execute(sql, params);
+        const [payments] = await client.execute(sql, params);
         for (const pay of payments) {
-            pay.bills = await getPaymentLinksByPaymentId(pay.id);
+            pay.bills = await getPaymentLinksByPaymentId(pay.id, client);
         }
         return payments;
     } catch (err) {
@@ -315,9 +357,9 @@ export async function getPaymentAuditList({ limit = 100, offset = 0, channel, st
 /**
  * Update keputusan verifikasi payment (approved / rejected)
  */
-export async function updatePaymentVerification(id, { status, rejectReason = null, verifiedBy = null, verifiedAt = new Date() }, connection = null) {
-    await ensureTables();
-    const client = connection || db;
+export async function updatePaymentVerification(id, { status, rejectReason = null, verifiedBy = null, verifiedAt = new Date() }, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const sql = `
         UPDATE payments 
         SET status = ?, reject_reason = ?, verified_by = ?, verified_at = ?
@@ -336,8 +378,9 @@ export async function updatePaymentVerification(id, { status, rejectReason = nul
  * Ambil seluruh histori pengajuan pembayaran milik satu Kartu Keluarga (family_id)
  * Termasuk pembayaran yang berstatus 'approved', 'pending', maupun 'rejected' lengkap dengan reject_reason
  */
-export async function getPaymentsByFamilyId(familyId) {
-    await ensureTables();
+export async function getPaymentsByFamilyId(familyId, executor = db) {
+    const client = executor || db;
+    await ensureTables(client);
     const sql = `
         SELECT p.*,
                f.no_kk,
@@ -351,9 +394,9 @@ export async function getPaymentsByFamilyId(familyId) {
         ORDER BY p.created_at DESC
     `;
     try {
-        const [rows] = await db.execute(sql, [familyId]);
+        const [rows] = await client.execute(sql, [familyId]);
         for (const pay of rows) {
-            pay.bills = await getPaymentLinksByPaymentId(pay.id);
+            pay.bills = await getPaymentLinksByPaymentId(pay.id, client);
         }
         return rows;
     } catch (err) {

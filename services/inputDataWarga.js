@@ -3,9 +3,9 @@ import { encryptEmails, decryptEmails } from "../helpers/ciihper.js";
 import { maskData } from "../utils/masking.js";
 
 
-export async function listWarganya() {
+export async function listWarganya(executor = undefined) {
     try {
-        const hasilnya = await getWarganya()
+        const hasilnya = await getWarganya(executor)
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return hasilnya
         }

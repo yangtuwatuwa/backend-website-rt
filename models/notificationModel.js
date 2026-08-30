@@ -2,10 +2,13 @@ import db from "../config/sqlconfig.js";
 
 let tableInitialized = false;
 
-export async function ensureNotificationTable() {
+export async function ensureNotificationTable(executor = db) {
+    const client = executor || db;
+
+    if (client !== db) return;
     if (!tableInitialized) {
         try {
-            await db.execute(`
+            await client.execute(`
                 CREATE TABLE IF NOT EXISTS notifications (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     account_id INT NOT NULL,
@@ -33,17 +36,18 @@ export async function ensureNotificationTable() {
 /**
  * Simpan 1 notifikasi baru ke database
  */
-export async function createNotificationModel({
-    accountId,
-    type,
-    title,
-    message,
-    referenceType = null,
-    referenceId = null,
-    isRead = false
-}, connection = null) {
-    await ensureNotificationTable();
-    const client = connection || db;
+export async function createNotificationModel(data, executor = db) {
+    const client = executor || db;
+    const {
+        accountId,
+        type,
+        title,
+        message,
+        referenceType = null,
+        referenceId = null,
+        isRead = false
+    } = data;
+    await ensureNotificationTable(client);
     const sql = `
         INSERT INTO notifications (
             account_id, type, title, message, reference_type, reference_id, is_read, created_at
@@ -69,10 +73,10 @@ export async function createNotificationModel({
 /**
  * Simpan batch banyak notifikasi sekaligus (misal saat publish tagihan ke banyak keluarga)
  */
-export async function createNotificationBatchModel(notifList, connection = null) {
-    await ensureNotificationTable();
+export async function createNotificationBatchModel(notifList, executor = db) {
+    const client = executor || db;
+    await ensureNotificationTable(client);
     if (!Array.isArray(notifList) || notifList.length === 0) return { affectedRows: 0 };
-    const client = connection || db;
 
     const values = [];
     const placeholders = notifList.map(n => {
@@ -106,8 +110,9 @@ export async function createNotificationBatchModel(notifList, connection = null)
 /**
  * Ambil daftar notifikasi untuk sebuah akun (dengan filter & pagination)
  */
-export async function getNotificationsByAccountId(accountId, { isRead, type, limit = 20, offset = 0 } = {}) {
-    await ensureNotificationTable();
+export async function getNotificationsByAccountId(accountId, { isRead, type, limit = 20, offset = 0 } = {}, executor = db) {
+    const client = executor || db;
+    await ensureNotificationTable(client);
     let sql = "SELECT * FROM notifications WHERE account_id = ?";
     const params = [accountId];
 
@@ -126,7 +131,7 @@ export async function getNotificationsByAccountId(accountId, { isRead, type, lim
     params.push(String(limit), String(offset));
 
     try {
-        const [rows] = await db.execute(sql, params);
+        const [rows] = await client.execute(sql, params);
         return rows.map(r => ({
             ...r,
             is_read: Boolean(r.is_read)
@@ -140,11 +145,12 @@ export async function getNotificationsByAccountId(accountId, { isRead, type, lim
 /**
  * Hitung jumlah notifikasi belum dibaca (unread count)
  */
-export async function getUnreadNotificationCount(accountId) {
-    await ensureNotificationTable();
+export async function getUnreadNotificationCount(accountId, executor = db) {
+    const client = executor || db;
+    await ensureNotificationTable(client);
     const sql = "SELECT COUNT(id) AS unread_count FROM notifications WHERE account_id = ? AND is_read = 0";
     try {
-        const [rows] = await db.execute(sql, [accountId]);
+        const [rows] = await client.execute(sql, [accountId]);
         return Number(rows[0]?.unread_count || 0);
     } catch (err) {
         console.error("error getUnreadNotificationCount:", err);
@@ -155,11 +161,12 @@ export async function getUnreadNotificationCount(accountId) {
 /**
  * Tandai satu notifikasi sebagai telah dibaca
  */
-export async function markNotificationAsRead(notificationId, accountId) {
-    await ensureNotificationTable();
+export async function markNotificationAsRead(notificationId, accountId, executor = db) {
+    const client = executor || db;
+    await ensureNotificationTable(client);
     const sql = "UPDATE notifications SET is_read = 1 WHERE id = ? AND account_id = ?";
     try {
-        const [result] = await db.execute(sql, [notificationId, accountId]);
+        const [result] = await client.execute(sql, [notificationId, accountId]);
         return result;
     } catch (err) {
         console.error("error markNotificationAsRead:", err);
@@ -170,11 +177,12 @@ export async function markNotificationAsRead(notificationId, accountId) {
 /**
  * Tandai semua notifikasi akun sebagai telah dibaca
  */
-export async function markAllNotificationsAsRead(accountId) {
-    await ensureNotificationTable();
+export async function markAllNotificationsAsRead(accountId, executor = db) {
+    const client = executor || db;
+    await ensureNotificationTable(client);
     const sql = "UPDATE notifications SET is_read = 1 WHERE account_id = ? AND is_read = 0";
     try {
-        const [result] = await db.execute(sql, [accountId]);
+        const [result] = await client.execute(sql, [accountId]);
         return result;
     } catch (err) {
         console.error("error markAllNotificationsAsRead:", err);
@@ -185,8 +193,8 @@ export async function markAllNotificationsAsRead(accountId) {
 /**
  * Cari seluruh account_id yang terikat pada sebuah Kartu Keluarga (family_id)
  */
-export async function getAccountIdsByFamilyId(familyId, connection = null) {
-    const client = connection || db;
+export async function getAccountIdsByFamilyId(familyId, executor = db) {
+    const client = executor || db;
     const sql = "SELECT id FROM acount WHERE family_id = ?";
     try {
         const [rows] = await client.execute(sql, [familyId]);
@@ -200,9 +208,9 @@ export async function getAccountIdsByFamilyId(familyId, connection = null) {
 /**
  * Cari seluruh account_id milik keluarga-keluarga tertentu (batch)
  */
-export async function getAccountIdsByFamilyIds(familyIds, connection = null) {
+export async function getAccountIdsByFamilyIds(familyIds, executor = db) {
     if (!Array.isArray(familyIds) || familyIds.length === 0) return [];
-    const client = connection || db;
+    const client = executor || db;
     const placeholders = familyIds.map(() => "?").join(", ");
     const sql = `SELECT id, family_id FROM acount WHERE family_id IN (${placeholders})`;
     try {

@@ -5,6 +5,8 @@ import { calculateAge } from "../helpers/ageCalculator.js";
 import { normalizeEmail, computeBlindIndex, encryptEmail } from "../lib/crypto/email.js";
 import crypto from "crypto";
 
+let registerFamilySavepointCounter = 0;
+
 // Fallback password generator if not provided
 function generateTempPassword() {
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
@@ -13,17 +15,48 @@ function generateTempPassword() {
         .join("");
 }
 
-export async function registerFamilyService(houseData, familyData, headOfFamilyData, accountData = {}) {
-    const conn = await pool.getConnection();
+export async function registerFamilyService(houseData, familyData, headOfFamilyData, accountData = {}, executor = undefined) {
+    const ownsTransaction = !executor;
+    const conn = executor || await pool.getConnection();
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_register_family_${++registerFamilySavepointCounter}`;
+    let transactionStarted = false;
+    let savepointCreated = false;
+
+    async function ensureMutationScope() {
+        if (!ownsTransaction && !savepointCreated) {
+            await conn.query(`SAVEPOINT ${savepointName}`);
+            savepointCreated = true;
+        }
+    }
+
     try {
-        await conn.beginTransaction();
+        if (ownsTransaction) {
+            await conn.beginTransaction();
+            transactionStarted = true;
+        }
 
         // 1. Resolve House (Existing or New)
         let houseId = houseData.houseId || houseData.house_id || houseData.id;
         if (houseId) {
-            const [existingHouse] = await conn.execute("SELECT id FROM house WHERE id = ?", [houseId]);
+            const [existingHouse] = await conn.execute(
+                "SELECT id FROM house WHERE id = ? FOR UPDATE",
+                [houseId]
+            );
             if (!existingHouse || existingHouse.length === 0) {
                 throw new Error(`Data rumah dengan ID ${houseId} tidak ditemukan`);
+            }
+
+            // Serialisasi seluruh flow registrasi yang memakai rumah yang sama,
+            // lalu gunakan locking current-read untuk mencegah satu rumah dipakai
+            // oleh lebih dari satu family melalui service registrasi aktif.
+            const [occupyingFamilies] = await conn.execute(
+                "SELECT id FROM family WHERE house_id = ? LIMIT 1 FOR UPDATE",
+                [houseId]
+            );
+            if (occupyingFamilies && occupyingFamilies.length > 0) {
+                throw new Error(`Rumah dengan ID ${houseId} sudah digunakan oleh keluarga lain`);
             }
         } else {
             const { blok, nomor, alamat, status: houseStatus = "pribadi" } = houseData;
@@ -34,6 +67,7 @@ export async function registerFamilyService(houseData, familyData, headOfFamilyD
             const encryptedNomor = encryptEmails(String(nomor));
             const encryptedAlamat = encryptEmails(String(alamat));
 
+            await ensureMutationScope();
             const [houseResult] = await conn.execute(
                 "INSERT INTO house (id, blok, nomor, alamat, status) VALUES (NULL, ?, ?, ?, ?)",
                 [encryptedBlok, encryptedNomor, encryptedAlamat, houseStatus]
@@ -48,6 +82,7 @@ export async function registerFamilyService(houseData, familyData, headOfFamilyD
             throw new Error("Nomor KK wajib diisi");
         }
         const encryptedKK = encryptEmails(String(rawNoKK));
+        await ensureMutationScope();
         const [familyResult] = await conn.execute(
             "INSERT INTO family (id, no_kk, house_id, kepala_keluarga_id) VALUES (NULL, ?, ?, NULL)",
             [encryptedKK, houseId]
@@ -117,7 +152,13 @@ export async function registerFamilyService(houseData, familyData, headOfFamilyD
             [username, passwordHash, encryptedEmail, blindIdx, familyId]
         );
 
-        await conn.commit();
+        if (ownsTransaction) {
+            await conn.commit();
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            await conn.query(`RELEASE SAVEPOINT ${savepointName}`);
+            savepointCreated = false;
+        }
 
         return {
             houseId,
@@ -131,10 +172,32 @@ export async function registerFamilyService(houseData, familyData, headOfFamilyD
         };
 
     } catch (err) {
-        await conn.rollback();
+        if (transactionStarted) {
+            try {
+                await conn.rollback();
+            } catch (rollbackErr) {
+                console.log("error rollback registerFamilyService:", rollbackErr.message || rollbackErr);
+            }
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            try {
+                await conn.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            } catch (rollbackErr) {
+                console.log("error rollback savepoint registerFamilyService:", rollbackErr.message || rollbackErr);
+            }
+
+            try {
+                await conn.query(`RELEASE SAVEPOINT ${savepointName}`);
+            } catch (releaseErr) {
+                console.log("error release savepoint registerFamilyService:", releaseErr.message || releaseErr);
+            }
+        }
+
         console.log("error registerFamilyService:", err.message || err);
         return "error karena: " + (err.message || err);
     } finally {
-        conn.release();
+        if (ownsTransaction) {
+            conn.release();
+        }
     }
 }

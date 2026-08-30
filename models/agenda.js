@@ -1,9 +1,9 @@
 import db from "../config/sqlconfig.js"
 
-export async function createAgenda(kategori, judul, deskripsi, tanggal, waktu, tempat) {
+export async function createAgenda(kategori, judul, deskripsi, tanggal, waktu, tempat, executor = db) {
     const sqlcommand = "INSERT INTO agenda (id, kategori, judul, deskripsi, tanggal, waktu, tempat) VALUES (NULL, ?, ?, ?, ?, ?, ?)"
     try {
-        const [result] = await db.execute(sqlcommand, [kategori, judul, deskripsi, tanggal, waktu, tempat])
+        const [result] = await executor.execute(sqlcommand, [kategori, judul, deskripsi, tanggal, waktu, tempat])
         return result
     } catch (err) {
         console.log("error bagian createAgenda: " + err)
@@ -11,7 +11,7 @@ export async function createAgenda(kategori, judul, deskripsi, tanggal, waktu, t
     }
 }
 
-export async function getAgendas(search = "") {
+export async function getAgendas(search = "", executor = db) {
     let sqlcommand = "SELECT * FROM agenda ORDER BY tanggal ASC"
     let params = []
     
@@ -22,7 +22,7 @@ export async function getAgendas(search = "") {
     }
     
     try {
-        const [result] = await db.execute(sqlcommand, params)
+        const [result] = await executor.execute(sqlcommand, params)
         return result
     } catch (err) {
         console.log("error bagian getAgendas: " + err)
@@ -30,10 +30,10 @@ export async function getAgendas(search = "") {
     }
 }
 
-export async function getAgendaById(id) {
+export async function getAgendaById(id, executor = db) {
     const sqlcommand = "SELECT * FROM agenda WHERE id = ?"
     try {
-        const [result] = await db.execute(sqlcommand, [id])
+        const [result] = await executor.execute(sqlcommand, [id])
         return result[0]
     } catch (err) {
         console.log("error bagian getAgendaById: " + err)
@@ -41,7 +41,7 @@ export async function getAgendaById(id) {
     }
 }
 
-export async function updateAgenda(id, dataToUpdate) {
+export async function updateAgenda(id, dataToUpdate, executor = db) {
     const fields = []
     const values = []
     
@@ -60,7 +60,7 @@ export async function updateAgenda(id, dataToUpdate) {
     values.push(id)
     
     try {
-        const [result] = await db.execute(sqlcommand, values)
+        const [result] = await executor.execute(sqlcommand, values)
         return result
     } catch (err) {
         console.log("error bagian updateAgenda: " + err)
@@ -68,10 +68,10 @@ export async function updateAgenda(id, dataToUpdate) {
     }
 }
 
-export async function deleteAgenda(id) {
+export async function deleteAgenda(id, executor = db) {
     const sqlcommand = "DELETE FROM agenda WHERE id = ?"
     try {
-        const [result] = await db.execute(sqlcommand, [id])
+        const [result] = await executor.execute(sqlcommand, [id])
         return result
     } catch (err) {
         console.log("error bagian deleteAgenda: " + err)

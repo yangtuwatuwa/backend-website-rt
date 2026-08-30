@@ -1,5 +1,5 @@
 import db from "../config/sqlconfig.js"
-export default async function keluarga(id) {
+export default async function keluarga(id, executor = db) {
     const sqlcomand = `
         SELECT 
             w.id AS warga_id,
@@ -21,7 +21,7 @@ export default async function keluarga(id) {
         WHERE w.family_id = ? AND w.status_data = 'diterima'
     `
     try {
-        const [hasil] = await db.execute(sqlcomand , [id])
+        const [hasil] = await executor.execute(sqlcomand , [id])
         return hasil;
     } catch (err) {
         console.log(err)

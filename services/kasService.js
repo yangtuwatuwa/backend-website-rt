@@ -12,6 +12,9 @@ import { writeLedgerEntry } from "../models/financial.js";
 import { getAccountById } from "../models/login.js";
 import { createNotification } from "./notificationService.js";
 
+let submitKasSavepointCounter = 0;
+let verifyKasSavepointCounter = 0;
+
 /**
  * 1. Submit Iuran / Sumbangan Kas RT (Scope: family_id)
  * - Channel 'cash_to_bendahara': Langsung APPROVED & Dicatat ke Buku Kas (financial_ledger)
@@ -26,7 +29,7 @@ export async function submitKasContributionService({
     channel = 'transfer',
     proofUrl = null,
     recordedBy = null
-}) {
+}, executor = undefined) {
     const targetFamilyId = familyId || residentId;
     const validCategories = ['kematian', 'sosial', 'kegiatan', 'lainnya'];
     const cleanCategory = String(category || "").toLowerCase().trim();
@@ -53,12 +56,27 @@ export async function submitKasContributionService({
         return { error: "Kartu Keluarga (familyId) wajib disertakan!" };
     }
 
-    const connection = await pool.getConnection();
+    const ownsTransaction = !executor;
+    const connection = executor || await pool.getConnection();
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_submit_kas_${++submitKasSavepointCounter}`;
+    let transactionStarted = false;
+    let savepointCreated = false;
+
     try {
-        await connection.beginTransaction();
+        if (ownsTransaction) {
+            await connection.beginTransaction();
+            transactionStarted = true;
+        }
 
         const cleanDesc = description ? description.trim() : "-";
         const now = new Date();
+
+        if (savepointName) {
+            await connection.query(`SAVEPOINT ${savepointName}`);
+            savepointCreated = true;
+        }
 
         if (channel === 'cash_to_bendahara') {
             // Tunai langsung diterima Bendahara -> Approved & Catat ke Ledger
@@ -80,11 +98,16 @@ export async function submitKasContributionService({
                 type: 'in',
                 amount: cleanAmount,
                 sourceType: 'kas',
-                description: ledgerDesc,
-                connection
-            });
+                description: ledgerDesc
+            }, connection);
 
-            await connection.commit();
+            if (ownsTransaction) {
+                await connection.commit();
+                transactionStarted = false;
+            } else if (savepointCreated) {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                savepointCreated = false;
+            }
 
             return {
                 message: "Iuran kas tunai berhasil dicatat dan diverifikasi (Lunas)",
@@ -104,7 +127,13 @@ export async function submitKasContributionService({
                 recordedBy
             }, connection);
 
-            await connection.commit();
+            if (ownsTransaction) {
+                await connection.commit();
+                transactionStarted = false;
+            } else if (savepointCreated) {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                savepointCreated = false;
+            }
 
             return {
                 message: "Bukti pembayaran Kas berhasil diunggah, menunggu verifikasi Bendahara",
@@ -113,18 +142,40 @@ export async function submitKasContributionService({
             };
         }
     } catch (err) {
-        await connection.rollback();
+        if (transactionStarted) {
+            try {
+                await connection.rollback();
+            } catch (rollbackErr) {
+                console.error("error rollback submitKasContributionService:", rollbackErr);
+            }
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            try {
+                await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            } catch (rollbackErr) {
+                console.error("error rollback savepoint submitKasContributionService:", rollbackErr);
+            }
+
+            try {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+            } catch (releaseErr) {
+                console.error("error release savepoint submitKasContributionService:", releaseErr);
+            }
+        }
+
         console.error("error submitKasContributionService:", err);
         return { error: "Gagal memproses iuran kas: " + err.message };
     } finally {
-        connection.release();
+        if (ownsTransaction) {
+            connection.release();
+        }
     }
 }
 
 /**
  * 2. Verifikasi Iuran Kas oleh Bendahara (Approve / Reject)
  */
-export async function verifyKasContributionService({ contributionId, decision, actorId, rejectReason = null }) {
+export async function verifyKasContributionService({ contributionId, decision, actorId, rejectReason = null }, executor = undefined) {
     const validDecisions = ['approved', 'rejected'];
     if (!validDecisions.includes(decision)) {
         return { error: "Keputusan verifikasi tidak valid! Harus 'approved' atau 'rejected'." };
@@ -134,22 +185,43 @@ export async function verifyKasContributionService({ contributionId, decision, a
         return { error: "Alasan penolakan (rejectReason) wajib diisi saat menolak iuran kas!" };
     }
 
-    const connection = await pool.getConnection();
+    const ownsTransaction = !executor;
+    const connection = executor || await pool.getConnection();
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_verify_kas_${++verifyKasSavepointCounter}`;
+    let transactionStarted = false;
+    let savepointCreated = false;
+
     try {
-        await connection.beginTransaction();
+        if (ownsTransaction) {
+            await connection.beginTransaction();
+            transactionStarted = true;
+        }
 
         const contribution = await getKasContributionByIdForUpdate(contributionId, connection);
         if (!contribution) {
-            await connection.rollback();
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            }
             return { error: "Data iuran kas tidak ditemukan!" };
         }
 
         if (contribution.status !== 'pending') {
-            await connection.rollback();
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            }
             return { error: `Iuran kas ini sudah pernah diproses sebelumnya (Status: ${contribution.status})!` };
         }
 
         const now = new Date();
+
+        if (savepointName) {
+            await connection.query(`SAVEPOINT ${savepointName}`);
+            savepointCreated = true;
+        }
 
         if (decision === 'approved') {
             // Update status menjadi 'approved'
@@ -166,11 +238,13 @@ export async function verifyKasContributionService({ contributionId, decision, a
                 type: 'in',
                 amount: contribution.amount,
                 sourceType: 'kas',
-                description: ledgerDesc,
-                connection
-            });
+                description: ledgerDesc
+            }, connection);
 
-            await connection.commit();
+            if (ownsTransaction) {
+                await connection.commit();
+                transactionStarted = false;
+            }
 
             // Notifikasi persetujuan iuran kas
             try {
@@ -180,10 +254,16 @@ export async function verifyKasContributionService({ contributionId, decision, a
                     title: "Iuran Kas Disetujui",
                     message: `Iuran Kas [${contribution.category.toUpperCase()}] Anda sebesar Rp ${Number(contribution.amount).toLocaleString('id-ID')} telah diverifikasi dan disetujui. Terima kasih!`,
                     referenceType: "kas_contribution",
-                    referenceId: contributionId
-                });
+                    referenceId: contributionId,
+                    emitRealtime: ownsTransaction
+                }, ownsTransaction ? undefined : connection);
             } catch (ne) {
                 console.error("Non-blocking error notifikasi approve kas:", ne.message);
+            }
+
+            if (!ownsTransaction && savepointCreated) {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                savepointCreated = false;
             }
 
             return {
@@ -200,7 +280,10 @@ export async function verifyKasContributionService({ contributionId, decision, a
                 verifiedAt: now
             }, connection);
 
-            await connection.commit();
+            if (ownsTransaction) {
+                await connection.commit();
+                transactionStarted = false;
+            }
 
             // Notifikasi penolakan iuran kas dengan rejectReason
             try {
@@ -210,10 +293,16 @@ export async function verifyKasContributionService({ contributionId, decision, a
                     title: "Iuran Kas Ditolak",
                     message: `Iuran Kas [${contribution.category.toUpperCase()}] Anda sebesar Rp ${Number(contribution.amount).toLocaleString('id-ID')} ditolak. Alasan: ${rejectReason.trim()}`,
                     referenceType: "kas_contribution",
-                    referenceId: contributionId
-                });
+                    referenceId: contributionId,
+                    emitRealtime: ownsTransaction
+                }, ownsTransaction ? undefined : connection);
             } catch (ne) {
                 console.error("Non-blocking error notifikasi reject kas:", ne.message);
+            }
+
+            if (!ownsTransaction && savepointCreated) {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                savepointCreated = false;
             }
 
             return {
@@ -224,20 +313,42 @@ export async function verifyKasContributionService({ contributionId, decision, a
             };
         }
     } catch (err) {
-        await connection.rollback();
+        if (transactionStarted) {
+            try {
+                await connection.rollback();
+            } catch (rollbackErr) {
+                console.error("error rollback verifyKasContributionService:", rollbackErr);
+            }
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            try {
+                await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            } catch (rollbackErr) {
+                console.error("error rollback savepoint verifyKasContributionService:", rollbackErr);
+            }
+
+            try {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+            } catch (releaseErr) {
+                console.error("error release savepoint verifyKasContributionService:", releaseErr);
+            }
+        }
+
         console.error("error verifyKasContributionService:", err);
         return { error: "Gagal memverifikasi iuran kas: " + err.message };
     } finally {
-        connection.release();
+        if (ownsTransaction) {
+            connection.release();
+        }
     }
 }
 
 /**
  * 3. Ambil Daftar Pending Iuran Kas untuk Verifikasi Bendahara
  */
-export async function getPendingKasContributionsService(filters) {
+export async function getPendingKasContributionsService(filters, executor = pool) {
     try {
-        const list = await getPendingKasContributions(filters);
+        const list = await getPendingKasContributions(filters, executor);
         return list;
     } catch (err) {
         console.error("error getPendingKasContributionsService:", err);
@@ -248,9 +359,9 @@ export async function getPendingKasContributionsService(filters) {
 /**
  * 4. Ambil Riwayat Iuran Kas Keluarga Sendiri (Family-Gate)
  */
-export async function getMyKasHistoryService(userId) {
+export async function getMyKasHistoryService(userId, executor = pool) {
     try {
-        const userData = await getAccountById(userId);
+        const userData = await getAccountById(userId, executor);
         if (!userData || userData.length === 0) {
             return { error: "Akun warga tidak ditemukan!" };
         }
@@ -259,7 +370,7 @@ export async function getMyKasHistoryService(userId) {
             return { error: "Akun Anda belum terhubung dengan Kartu Keluarga!" };
         }
 
-        const list = await getKasContributionsByFamily(familyId);
+        const list = await getKasContributionsByFamily(familyId, executor);
         return list;
     } catch (err) {
         console.error("error getMyKasHistoryService:", err);
@@ -270,9 +381,9 @@ export async function getMyKasHistoryService(userId) {
 /**
  * 5. Ambil Audit Trail Iuran Kas untuk Bendahara & RT
  */
-export async function getKasAuditService(filters) {
+export async function getKasAuditService(filters, executor = pool) {
     try {
-        const list = await getKasAuditList(filters);
+        const list = await getKasAuditList(filters, executor);
         return list;
     } catch (err) {
         console.error("error getKasAuditService:", err);

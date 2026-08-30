@@ -27,8 +27,10 @@ export async function createNotification({
     referenceId = null,
     reference_id = null,
     isRead = false,
-    connection = null
-}) {
+    connection = null,
+    emitRealtime = true
+}, executor = undefined) {
+    const client = executor || connection;
     const targetAccountId = accountId || account_id;
     const targetFamilyId = familyId || family_id;
     const targetRefType = referenceType || reference_type;
@@ -52,11 +54,11 @@ export async function createNotification({
                 referenceType: targetRefType,
                 referenceId: targetRefId ? Number(targetRefId) : null,
                 isRead: Boolean(isRead)
-            }, connection);
+            }, client);
             insertedCount = 1;
         } else if (targetFamilyId) {
             // Kirim ke seluruh akun yang terikat ke family_id
-            const accountIds = await getAccountIdsByFamilyId(Number(targetFamilyId), connection);
+            const accountIds = await getAccountIdsByFamilyId(Number(targetFamilyId), client);
             if (accountIds.length > 0) {
                 const notifs = accountIds.map(accId => ({
                     accountId: accId,
@@ -67,16 +69,18 @@ export async function createNotification({
                     referenceId: targetRefId ? Number(targetRefId) : null,
                     isRead: false
                 }));
-                await createNotificationBatchModel(notifs, connection);
+                await createNotificationBatchModel(notifs, client);
                 insertedCount = notifs.length;
             }
         }
 
         // Trigger realtime socket sync event agar badge notifikasi frontend ter-update
-        try {
-            emitSyncEvent("notification");
-        } catch (sockErr) {
-            // Non-blocking socket error
+        if (emitRealtime) {
+            try {
+                emitSyncEvent("notification");
+            } catch (sockErr) {
+                // Non-blocking socket error
+            }
         }
 
         return { success: true, count: insertedCount };
@@ -96,12 +100,14 @@ export async function createBroadcastFamilyNotifications({
     message,
     referenceType = null,
     referenceId = null,
-    connection = null
-}) {
+    connection = null,
+    emitRealtime = true
+}, executor = undefined) {
+    const client = executor || connection;
     if (!Array.isArray(familyIds) || familyIds.length === 0) return { count: 0 };
 
     try {
-        const familyAccounts = await getAccountIdsByFamilyIds(familyIds, connection);
+        const familyAccounts = await getAccountIdsByFamilyIds(familyIds, client);
         if (familyAccounts.length === 0) return { count: 0 };
 
         const notifs = familyAccounts.map(fa => ({
@@ -114,11 +120,13 @@ export async function createBroadcastFamilyNotifications({
             isRead: false
         }));
 
-        const result = await createNotificationBatchModel(notifs, connection);
+        const result = await createNotificationBatchModel(notifs, client);
 
-        try {
-            emitSyncEvent("notification");
-        } catch (e) {}
+        if (emitRealtime) {
+            try {
+                emitSyncEvent("notification");
+            } catch (e) {}
+        }
 
         return { success: true, count: notifs.length, affectedRows: result.affectedRows };
     } catch (err) {
@@ -130,7 +138,7 @@ export async function createBroadcastFamilyNotifications({
 /**
  * Ambil daftar notifikasi akun sendiri
  */
-export async function getMyNotificationsService(accountId, { is_read, isRead, type, limit = 20, page = 1 } = {}) {
+export async function getMyNotificationsService(accountId, { is_read, isRead, type, limit = 20, page = 1 } = {}, executor = undefined) {
     try {
         const cleanLimit = Math.max(1, Math.min(100, Number(limit) || 20));
         const cleanPage = Math.max(1, Number(page) || 1);
@@ -142,9 +150,9 @@ export async function getMyNotificationsService(accountId, { is_read, isRead, ty
             type,
             limit: cleanLimit,
             offset
-        });
+        }, executor);
 
-        const unreadCount = await getUnreadNotificationCount(Number(accountId));
+        const unreadCount = await getUnreadNotificationCount(Number(accountId), executor);
 
         return {
             page: cleanPage,
@@ -162,9 +170,9 @@ export async function getMyNotificationsService(accountId, { is_read, isRead, ty
 /**
  * Ambil jumlah notifikasi yang belum dibaca
  */
-export async function getUnreadNotificationCountService(accountId) {
+export async function getUnreadNotificationCountService(accountId, executor = undefined) {
     try {
-        const count = await getUnreadNotificationCount(Number(accountId));
+        const count = await getUnreadNotificationCount(Number(accountId), executor);
         return { unread_count: count };
     } catch (err) {
         console.error("error getUnreadNotificationCountService:", err);
@@ -175,14 +183,14 @@ export async function getUnreadNotificationCountService(accountId) {
 /**
  * Tandai satu notifikasi sebagai telah dibaca
  */
-export async function markNotificationReadService(notificationId, accountId) {
+export async function markNotificationReadService(notificationId, accountId, executor = undefined) {
     try {
-        const result = await markNotificationAsRead(Number(notificationId), Number(accountId));
+        const result = await markNotificationAsRead(Number(notificationId), Number(accountId), executor);
         if (result.affectedRows === 0) {
             return { error: "Notifikasi tidak ditemukan atau bukan milik akun Anda!" };
         }
 
-        const unreadCount = await getUnreadNotificationCount(Number(accountId));
+        const unreadCount = await getUnreadNotificationCount(Number(accountId), executor);
         return {
             message: "Notifikasi berhasil ditandai telah dibaca",
             notification_id: Number(notificationId),
@@ -198,9 +206,9 @@ export async function markNotificationReadService(notificationId, accountId) {
 /**
  * Tandai semua notifikasi akun sebagai telah dibaca
  */
-export async function markAllNotificationsReadService(accountId) {
+export async function markAllNotificationsReadService(accountId, executor = undefined) {
     try {
-        const result = await markAllNotificationsAsRead(Number(accountId));
+        const result = await markAllNotificationsAsRead(Number(accountId), executor);
         return {
             message: `Semua (${result.affectedRows}) notifikasi berhasil ditandai telah dibaca`,
             affected_rows: result.affectedRows,

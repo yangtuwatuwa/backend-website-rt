@@ -2,9 +2,9 @@ import { getHouses } from "../models/houseWarga.js";
 import { decryptEmails } from "../helpers/ciihper.js";
 
 
-export async function listRumah() {
+export async function listRumah(executor = undefined) {
     try {
-        const hasilnya = await getHouses()
+        const hasilnya = await getHouses(executor)
         if (typeof hasilnya === "string" && hasilnya.startsWith("error")) {
             return hasilnya
         }

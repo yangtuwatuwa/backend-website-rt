@@ -5,10 +5,11 @@ import pool from "../config/sqlconfig.js";
  * @param {string} username 
  * @returns {Promise<boolean>}
  */
-export async function checkUsernameExists(username) {
+export async function checkUsernameExists(username, executor = pool) {
+    const client = executor || pool;
     const sql = "SELECT id FROM acount WHERE username = ?";
     try {
-        const [rows] = await pool.execute(sql, [username]);
+        const [rows] = await client.execute(sql, [username]);
         return rows.length > 0;
     } catch (err) {
         console.error("error checkUsernameExists in adminPanelModel:", err);
@@ -21,10 +22,11 @@ export async function checkUsernameExists(username) {
  * @param {number} id 
  * @returns {Promise<object>}
  */
-export async function deleteRtAccount(id) {
+export async function deleteRtAccount(id, executor = pool) {
+    const client = executor || pool;
     const sql = "DELETE FROM acount WHERE id = ? AND role = 'rt'";
     try {
-        const [result] = await pool.execute(sql, [id]);
+        const [result] = await client.execute(sql, [id]);
         return result;
     } catch (err) {
         console.error("error deleteRtAccount in adminPanelModel:", err);
@@ -37,10 +39,12 @@ export async function deleteRtAccount(id) {
  * @param {object} param0 
  * @returns {Promise<object>}
  */
-export async function createRtAccount({ username, password, emailEncrypted, emailBlindIdx }) {
+export async function createRtAccount(data, executor = pool) {
+    const client = executor || pool;
+    const { username, password, emailEncrypted, emailBlindIdx } = data;
     const sql = "INSERT INTO acount (username, password, role, email_encrypted, email_blind_idx, must_change_password) VALUES (?, ?, 'rt', ?, ?, 1)";
     try {
-        const [result] = await pool.execute(sql, [username, password, emailEncrypted, emailBlindIdx]);
+        const [result] = await client.execute(sql, [username, password, emailEncrypted, emailBlindIdx]);
         return result;
     } catch (err) {
         if (err && (err.code === 'ER_DUP_ENTRY' || err.errno === 1062)) {
@@ -56,10 +60,11 @@ export async function createRtAccount({ username, password, emailEncrypted, emai
  * @param {string} roleFilter 
  * @returns {Promise<Array>}
  */
-export async function getStaffAccounts(roleFilter) {
+export async function getStaffAccounts(roleFilter, executor = pool) {
+    const client = executor || pool;
     const sql = "SELECT id, username, role, family_id, must_change_password, created_at, updated_at FROM acount WHERE role = ? ORDER BY created_at DESC";
     try {
-        const [rows] = await pool.execute(sql, [roleFilter]);
+        const [rows] = await client.execute(sql, [roleFilter]);
         return rows;
     } catch (err) {
         console.error("error getStaffAccounts in adminPanelModel:", err);
@@ -72,10 +77,11 @@ export async function getStaffAccounts(roleFilter) {
  * @param {number} id 
  * @returns {Promise<object>}
  */
-export async function deleteStaffAccount(id) {
+export async function deleteStaffAccount(id, executor = pool) {
+    const client = executor || pool;
     const sql = "DELETE FROM acount WHERE id = ? AND role IN ('sekertaris', 'bendahara')";
     try {
-        const [result] = await pool.execute(sql, [id]);
+        const [result] = await client.execute(sql, [id]);
         return result;
     } catch (err) {
         console.error("error deleteStaffAccount in adminPanelModel:", err);
@@ -88,7 +94,9 @@ export async function deleteStaffAccount(id) {
  * @param {object} param0 
  * @returns {Promise<Array>}
  */
-export async function getAuditLogs({ role, dateFrom, dateTo, limit, offset }) {
+export async function getAuditLogs(filters, executor = pool) {
+    const client = executor || pool;
+    const { role, dateFrom, dateTo, limit, offset } = filters;
     const conditions = [];
     const params = [];
 
@@ -125,7 +133,7 @@ export async function getAuditLogs({ role, dateFrom, dateTo, limit, offset }) {
     params.push(String(limit), String(offset));
 
     try {
-        const [rows] = await pool.execute(sql, params);
+        const [rows] = await client.execute(sql, params);
         return rows;
     } catch (err) {
         console.error("error getAuditLogs in adminPanelModel:", err);
@@ -138,7 +146,9 @@ export async function getAuditLogs({ role, dateFrom, dateTo, limit, offset }) {
  * @param {object} param0 
  * @returns {Promise<number>}
  */
-export async function countAuditLogs({ role, dateFrom, dateTo }) {
+export async function countAuditLogs(filters, executor = pool) {
+    const client = executor || pool;
+    const { role, dateFrom, dateTo } = filters;
     const conditions = [];
     const params = [];
 
@@ -164,7 +174,7 @@ export async function countAuditLogs({ role, dateFrom, dateTo }) {
     `;
 
     try {
-        const [rows] = await pool.execute(sql, params);
+        const [rows] = await client.execute(sql, params);
         return rows[0]?.total || 0;
     } catch (err) {
         console.error("error countAuditLogs in adminPanelModel:", err);

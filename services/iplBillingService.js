@@ -34,10 +34,21 @@ import { writeLedgerEntry } from "../models/financial.js";
 import { getAccountById } from "../models/login.js";
 import { createNotification, createBroadcastFamilyNotifications } from "./notificationService.js";
 
+let publishBillPeriodSavepointCounter = 0;
+let submitPaymentSavepointCounter = 0;
+let verifyPaymentSavepointCounter = 0;
+
+async function getResettableBillIdsForUpdate(billIds, connection) {
+    const currentBills = await getBillsByIdsForUpdate(billIds, connection);
+    return currentBills
+        .filter(bill => bill.status !== 'exempt')
+        .map(bill => bill.id);
+}
+
 /**
  * 1. Membuat Periode Tagihan Baru (Draft)
  */
-export async function createBillPeriodService({ title, defaultAmount, dueDate, periodMonth, periodYear, createdBy }) {
+export async function createBillPeriodService({ title, defaultAmount, dueDate, periodMonth, periodYear, createdBy }, executor = pool) {
     try {
         const month = parseInt(periodMonth);
         const year = parseInt(periodYear);
@@ -60,7 +71,7 @@ export async function createBillPeriodService({ title, defaultAmount, dueDate, p
         }
 
         // Cek apakah sudah ada periode untuk bulan dan tahun yang sama
-        const existing = await getBillPeriodByMonthYear(month, year);
+        const existing = await getBillPeriodByMonthYear(month, year, executor);
         if (existing) {
             return { error: `Periode tagihan untuk bulan ${month}/${year} sudah ada dengan judul "${existing.title}"!` };
         }
@@ -72,9 +83,9 @@ export async function createBillPeriodService({ title, defaultAmount, dueDate, p
             periodMonth: month,
             periodYear: year,
             createdBy
-        });
+        }, executor);
 
-        const createdPeriod = await getBillPeriodById(result.insertId);
+        const createdPeriod = await getBillPeriodById(result.insertId, executor);
         return {
             message: "Periode tagihan berhasil dibuat (Status: Draft)",
             period: createdPeriod
@@ -88,9 +99,9 @@ export async function createBillPeriodService({ title, defaultAmount, dueDate, p
 /**
  * 2. Mengambil Daftar & Detail Periode Tagihan
  */
-export async function getAllBillPeriodsService(filters) {
+export async function getAllBillPeriodsService(filters, executor = pool) {
     try {
-        const periods = await getAllBillPeriods(filters);
+        const periods = await getAllBillPeriods(filters, executor);
         return periods;
     } catch (err) {
         console.error("error getAllBillPeriodsService:", err);
@@ -98,13 +109,13 @@ export async function getAllBillPeriodsService(filters) {
     }
 }
 
-export async function getBillPeriodDetailService(id) {
+export async function getBillPeriodDetailService(id, executor = pool) {
     try {
-        const period = await getBillPeriodById(id);
+        const period = await getBillPeriodById(id, executor);
         if (!period) {
             return { error: "Periode tagihan tidak ditemukan!" };
         }
-        const summary = await getBillsSummaryByPeriodId(id);
+        const summary = await getBillsSummaryByPeriodId(id, executor);
         return {
             period,
             summary
@@ -120,10 +131,20 @@ export async function getBillPeriodDetailService(id) {
  * 1 Keluarga (KK) = Tepat 1 Bill per Bill Period
  * Idempotent: Dilindungi UNIQUE(bill_period_id, family_id)
  */
-export async function publishBillPeriodService(billPeriodId, actorId) {
-    const connection = await pool.getConnection();
+export async function publishBillPeriodService(billPeriodId, actorId, executor = undefined) {
+    const ownsTransaction = !executor;
+    const connection = executor || await pool.getConnection();
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_publish_bill_period_${++publishBillPeriodSavepointCounter}`;
+    let transactionStarted = false;
+    let savepointCreated = false;
+
     try {
-        await connection.beginTransaction();
+        if (ownsTransaction) {
+            await connection.beginTransaction();
+            transactionStarted = true;
+        }
 
         // 1. Ambil data periode
         const [periodRows] = await connection.execute(
@@ -131,13 +152,19 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
             [billPeriodId]
         );
         if (periodRows.length === 0) {
-            await connection.rollback();
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            }
             return { error: "Periode tagihan tidak ditemukan!" };
         }
         const period = periodRows[0];
 
         if (period.status === 'published') {
-            await connection.rollback();
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            }
             return { error: "Periode tagihan ini sudah pernah dipublish sebelumnya!" };
         }
 
@@ -149,7 +176,10 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
         `);
 
         if (!activeFamilies || activeFamilies.length === 0) {
-            await connection.rollback();
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            }
             return { error: "Tidak ada keluarga (KK) yang ditemukan untuk diterbitkan tagihan!" };
         }
 
@@ -162,13 +192,21 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
             status: 'unpaid'
         }));
 
+        if (savepointName) {
+            await connection.query(`SAVEPOINT ${savepointName}`);
+            savepointCreated = true;
+        }
+
         // 4. Batch insert dengan INSERT IGNORE
         await createBatchBills(billsToInsert, connection);
 
         // 5. Update status periode menjadi 'published'
         await updateBillPeriodStatus(period.id, 'published', connection);
 
-        await connection.commit();
+        if (ownsTransaction) {
+            await connection.commit();
+            transactionStarted = false;
+        }
 
         // Kirim notifikasi in-app ke seluruh keluarga aktif yang diterbitkan tagihan
         try {
@@ -179,13 +217,23 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
                 title: `Tagihan IPL Baru: ${period.title}`,
                 message: `Tagihan IPL untuk periode "${period.title}" sebesar Rp ${Number(period.default_amount).toLocaleString('id-ID')} telah diterbitkan. Jatuh tempo: ${period.due_date}.`,
                 referenceType: "bill_period",
-                referenceId: period.id
-            });
+                referenceId: period.id,
+                emitRealtime: ownsTransaction
+            }, ownsTransaction ? undefined : connection);
         } catch (notifErr) {
             console.error("Non-blocking error notifikasi publish IPL:", notifErr.message);
         }
 
-        const summary = await getBillsSummaryByPeriodId(period.id);
+        const summary = await getBillsSummaryByPeriodId(
+            period.id,
+            ownsTransaction ? pool : connection
+        );
+
+        if (!ownsTransaction && savepointCreated) {
+            await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+            savepointCreated = false;
+        }
+
         return {
             message: `Tagihan "${period.title}" berhasil dipublish untuk ${activeFamilies.length} keluarga (KK)!`,
             period_id: period.id,
@@ -193,11 +241,33 @@ export async function publishBillPeriodService(billPeriodId, actorId) {
             summary
         };
     } catch (err) {
-        await connection.rollback();
+        if (transactionStarted) {
+            try {
+                await connection.rollback();
+            } catch (rollbackErr) {
+                console.error("error rollback publishBillPeriodService:", rollbackErr);
+            }
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            try {
+                await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            } catch (rollbackErr) {
+                console.error("error rollback savepoint publishBillPeriodService:", rollbackErr);
+            }
+
+            try {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+            } catch (releaseErr) {
+                console.error("error release savepoint publishBillPeriodService:", releaseErr);
+            }
+        }
+
         console.error("error publishBillPeriodService:", err);
         return { error: "Gagal mempublish tagihan: " + err.message };
     } finally {
-        connection.release();
+        if (ownsTransaction) {
+            connection.release();
+        }
     }
 }
 
@@ -219,7 +289,7 @@ export async function submitPaymentService({
     channel,
     proofUrl = null,
     recordedBy = null
-}) {
+}, executor = undefined) {
     let targetBillIds = [];
     if (Array.isArray(billIds)) {
         targetBillIds = billIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
@@ -258,14 +328,27 @@ export async function submitPaymentService({
         return { error: "Nominal pembayaran (amountStated) harus berupa angka valid positif!" };
     }
 
-    const connection = await pool.getConnection();
+    const ownsTransaction = !executor;
+    const connection = executor || await pool.getConnection();
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_submit_ipl_payment_${++submitPaymentSavepointCounter}`;
+    let transactionStarted = false;
+    let savepointCreated = false;
+
     try {
-        await connection.beginTransaction();
+        if (ownsTransaction) {
+            await connection.beginTransaction();
+            transactionStarted = true;
+        }
 
         // 1. Lock dan ambil seluruh tagihan dengan Pessimistic Lock
         const bills = await getBillsByIdsForUpdate(targetBillIds, connection);
         if (bills.length !== targetBillIds.length) {
-            await connection.rollback();
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            }
             return { error: "Satu atau lebih tagihan yang dipilih tidak ditemukan di database!" };
         }
 
@@ -275,26 +358,41 @@ export async function submitPaymentService({
         for (const b of bills) {
             // Validasi cross-family: tagihan harus milik familyId yang login
             if (familyId && String(b.family_id) !== String(familyId)) {
-                await connection.rollback();
+                if (transactionStarted) {
+                    await connection.rollback();
+                    transactionStarted = false;
+                }
                 return { error: "Akses ditolak: Satu atau lebih tagihan yang dipilih bukan milik keluarga Anda!" };
             }
             if (primaryFamilyId && String(b.family_id) !== String(primaryFamilyId)) {
-                await connection.rollback();
+                if (transactionStarted) {
+                    await connection.rollback();
+                    transactionStarted = false;
+                }
                 return { error: "Seluruh tagihan yang dirapel harus milik keluarga / KK yang sama!" };
             }
             if (b.status === 'paid') {
-                await connection.rollback();
+                if (transactionStarted) {
+                    await connection.rollback();
+                    transactionStarted = false;
+                }
                 return { error: `Tagihan #${b.id} (${b.period_title || 'IPL'}) sudah lunas sebelumnya!` };
             }
             if (b.status === 'exempt') {
-                await connection.rollback();
+                if (transactionStarted) {
+                    await connection.rollback();
+                    transactionStarted = false;
+                }
                 return { error: `Tagihan #${b.id} (${b.period_title || 'IPL'}) telah dibebaskan (exempt)!` };
             }
 
             // Cek apakah tagihan ini sedang menunggu verifikasi pada payment pending lain
             const isPending = await isBillInPendingPayment(b.id, connection);
             if (isPending) {
-                await connection.rollback();
+                if (transactionStarted) {
+                    await connection.rollback();
+                    transactionStarted = false;
+                }
                 return { error: `Tagihan #${b.id} (${b.period_title || 'IPL'}) saat ini sedang dalam proses verifikasi pending!` };
             }
         }
@@ -302,7 +400,10 @@ export async function submitPaymentService({
         // 3. Validasi kesesuaian nominal: totalAmount harus persis = SUM(allocated_amount)
         const expectedTotal = bills.reduce((sum, b) => sum + parseFloat(b.amount), 0);
         if (Math.abs(totalAmount - expectedTotal) > 0.01) {
-            await connection.rollback();
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            }
             return {
                 error: `Total nominal transfer (Rp ${totalAmount.toLocaleString('id-ID')}) tidak sesuai dengan total tagihan yang dipilih (Rp ${expectedTotal.toLocaleString('id-ID')})!`
             };
@@ -313,6 +414,11 @@ export async function submitPaymentService({
             billId: b.id,
             allocatedAmount: parseFloat(b.amount)
         }));
+
+        if (savepointName) {
+            await connection.query(`SAVEPOINT ${savepointName}`);
+            savepointCreated = true;
+        }
 
         // 4. Proses berdasarkan channel pembayaran
         if (channel === 'cash_to_bendahara') {
@@ -340,11 +446,16 @@ export async function submitPaymentService({
                 type: 'in',
                 amount: totalAmount,
                 sourceType: 'ipl',
-                description: ledgerDesc,
-                connection
-            });
+                description: ledgerDesc
+            }, connection);
 
-            await connection.commit();
+            if (ownsTransaction) {
+                await connection.commit();
+                transactionStarted = false;
+            } else if (savepointCreated) {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                savepointCreated = false;
+            }
 
             return {
                 message: `Pembayaran tunai ${targetBillIds.length} bulan berhasil dicatat dan diverifikasi (Lunas)`,
@@ -368,7 +479,13 @@ export async function submitPaymentService({
             // Update status seluruh bills menjadi 'waiting_verification'
             await updateMultipleBillStatus(targetBillIds, 'waiting_verification', connection);
 
-            await connection.commit();
+            if (ownsTransaction) {
+                await connection.commit();
+                transactionStarted = false;
+            } else if (savepointCreated) {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                savepointCreated = false;
+            }
 
             return {
                 message: `Bukti pembayaran ${targetBillIds.length} bulan berhasil dikirim, menunggu verifikasi Bendahara`,
@@ -379,18 +496,40 @@ export async function submitPaymentService({
             };
         }
     } catch (err) {
-        await connection.rollback();
+        if (transactionStarted) {
+            try {
+                await connection.rollback();
+            } catch (rollbackErr) {
+                console.error("error rollback submitPaymentService:", rollbackErr);
+            }
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            try {
+                await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            } catch (rollbackErr) {
+                console.error("error rollback savepoint submitPaymentService:", rollbackErr);
+            }
+
+            try {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+            } catch (releaseErr) {
+                console.error("error release savepoint submitPaymentService:", releaseErr);
+            }
+        }
+
         console.error("error submitPaymentService:", err);
         return { error: "Gagal memproses pembayaran: " + err.message };
     } finally {
-        connection.release();
+        if (ownsTransaction) {
+            connection.release();
+        }
     }
 }
 
 /**
  * 5. Verifikasi Pembayaran IPL oleh Bendahara (Approve / Reject)
  */
-export async function verifyPaymentService({ paymentId, decision, actorId, rejectReason = null }) {
+export async function verifyPaymentService({ paymentId, decision, actorId, rejectReason = null }, executor = undefined) {
     const validDecisions = ['approved', 'rejected'];
     if (!validDecisions.includes(decision)) {
         return { error: "Keputusan verifikasi tidak valid! Harus 'approved' atau 'rejected'." };
@@ -400,26 +539,45 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
         return { error: "Alasan penolakan (rejectReason) wajib diisi saat menolak pembayaran!" };
     }
 
-    const connection = await pool.getConnection();
+    const ownsTransaction = !executor;
+    const connection = executor || await pool.getConnection();
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_verify_ipl_payment_${++verifyPaymentSavepointCounter}`;
+    let transactionStarted = false;
+    let savepointCreated = false;
+
     try {
-        await connection.beginTransaction();
+        if (ownsTransaction) {
+            await connection.beginTransaction();
+            transactionStarted = true;
+        }
 
         // 1. Lock payment row
         const payment = await getPaymentByIdForUpdate(paymentId, connection);
         if (!payment) {
-            await connection.rollback();
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            }
             return { error: "Data pembayaran tidak ditemukan!" };
         }
 
         if (payment.status !== 'pending') {
-            await connection.rollback();
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            }
             return { error: `Pembayaran ini sudah pernah diproses sebelumnya (Status: ${payment.status})!` };
         }
 
         // 2. Ambil seluruh link tagihan untuk payment ini
         const links = await getPaymentLinksByPaymentId(paymentId, connection);
         if (!links || links.length === 0) {
-            await connection.rollback();
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            }
             return { error: "Pembayaran ini tidak memiliki tagihan yang terhubung!" };
         }
 
@@ -427,6 +585,11 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
         const lockedBills = await getBillsByIdsForUpdate(billIds, connection);
         const billMap = new Map(lockedBills.map(b => [b.id, b]));
         const now = new Date();
+
+        if (savepointName) {
+            await connection.query(`SAVEPOINT ${savepointName}`);
+            savepointCreated = true;
+        }
 
         if (decision === 'approved') {
             // Guard & Validasi Wajib:
@@ -457,10 +620,17 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
                     verifiedAt: now
                 }, connection);
 
-                // Kembalikan semua tagihan ke unpaid
-                await updateMultipleBillStatus(billIds, 'unpaid', connection);
+                // Re-check status tepat sebelum mutation dengan lock transaksi yang sama.
+                // Tagihan exempt beserta metadata pembebasannya harus tetap dipertahankan.
+                const resettableBillIds = await getResettableBillIdsForUpdate(billIds, connection);
+                if (resettableBillIds.length > 0) {
+                    await updateMultipleBillStatus(resettableBillIds, 'unpaid', connection);
+                }
 
-                await connection.commit();
+                if (ownsTransaction) {
+                    await connection.commit();
+                    transactionStarted = false;
+                }
 
                 // Notifikasi in-app penolakan otomatis
                 try {
@@ -470,10 +640,16 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
                         title: "Pembayaran IPL Ditolak",
                         message: `Pembayaran IPL Anda sebesar Rp ${Number(payment.total_amount).toLocaleString('id-ID')} ditolak otomatis karena nominal tidak sesuai pada salah satu tagihan.`,
                         referenceType: "payment",
-                        referenceId: paymentId
-                    });
+                        referenceId: paymentId,
+                        emitRealtime: ownsTransaction
+                    }, ownsTransaction ? undefined : connection);
                 } catch (ne) {
                     console.error("Non-blocking error notifikasi auto-reject IPL:", ne.message);
+                }
+
+                if (!ownsTransaction && savepointCreated) {
+                    await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                    savepointCreated = false;
                 }
 
                 return {
@@ -503,11 +679,13 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
                 type: 'in',
                 amount: payment.total_amount,
                 sourceType: 'ipl',
-                description: ledgerDesc,
-                connection
-            });
+                description: ledgerDesc
+            }, connection);
 
-            await connection.commit();
+            if (ownsTransaction) {
+                await connection.commit();
+                transactionStarted = false;
+            }
 
             // Notifikasi in-app persetujuan pembayaran Lunas
             try {
@@ -517,10 +695,16 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
                     title: "Pembayaran IPL Disetujui (Lunas)",
                     message: `Pembayaran IPL Anda sebesar Rp ${Number(payment.total_amount).toLocaleString('id-ID')} untuk tagihan [${periodTitles}] telah disetujui (Lunas). Terima kasih!`,
                     referenceType: "payment",
-                    referenceId: paymentId
-                });
+                    referenceId: paymentId,
+                    emitRealtime: ownsTransaction
+                }, ownsTransaction ? undefined : connection);
             } catch (ne) {
                 console.error("Non-blocking error notifikasi approve IPL:", ne.message);
+            }
+
+            if (!ownsTransaction && savepointCreated) {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                savepointCreated = false;
             }
 
             return {
@@ -538,10 +722,17 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
                 verifiedAt: now
             }, connection);
 
-            // Kembalikan seluruh bills terkait ke 'unpaid'
-            await updateMultipleBillStatus(billIds, 'unpaid', connection);
+            // Re-check status tepat sebelum mutation dengan lock transaksi yang sama.
+            // Tagihan exempt beserta metadata pembebasannya harus tetap dipertahankan.
+            const resettableBillIds = await getResettableBillIdsForUpdate(billIds, connection);
+            if (resettableBillIds.length > 0) {
+                await updateMultipleBillStatus(resettableBillIds, 'unpaid', connection);
+            }
 
-            await connection.commit();
+            if (ownsTransaction) {
+                await connection.commit();
+                transactionStarted = false;
+            }
 
             // ⭐ PRIORITAS: Notifikasi in-app penolakan pembayaran IPL dengan rejectReason
             try {
@@ -551,14 +742,20 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
                     title: "Pembayaran IPL Ditolak",
                     message: `Pembayaran IPL Anda sebesar Rp ${Number(payment.total_amount).toLocaleString('id-ID')} ditolak oleh Bendahara. Alasan: ${rejectReason.trim()}`,
                     referenceType: "payment",
-                    referenceId: paymentId
-                });
+                    referenceId: paymentId,
+                    emitRealtime: ownsTransaction
+                }, ownsTransaction ? undefined : connection);
             } catch (ne) {
                 console.error("Non-blocking error notifikasi reject IPL:", ne.message);
             }
 
+            if (!ownsTransaction && savepointCreated) {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                savepointCreated = false;
+            }
+
             return {
-                message: "Pembayaran telah ditolak (Rejected). Status seluruh tagihan kembali UNPAID.",
+                message: "Pembayaran telah ditolak (Rejected). Status tagihan non-exempt kembali UNPAID.",
                 payment_id: paymentId,
                 bill_ids: billIds,
                 status: "rejected",
@@ -566,24 +763,46 @@ export async function verifyPaymentService({ paymentId, decision, actorId, rejec
             };
         }
     } catch (err) {
-        await connection.rollback();
+        if (transactionStarted) {
+            try {
+                await connection.rollback();
+            } catch (rollbackErr) {
+                console.error("error rollback verifyPaymentService:", rollbackErr);
+            }
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            try {
+                await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            } catch (rollbackErr) {
+                console.error("error rollback savepoint verifyPaymentService:", rollbackErr);
+            }
+
+            try {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+            } catch (releaseErr) {
+                console.error("error release savepoint verifyPaymentService:", releaseErr);
+            }
+        }
+
         console.error("error verifyPaymentService:", err);
         return { error: "Gagal memverifikasi pembayaran: " + err.message };
     } finally {
-        connection.release();
+        if (ownsTransaction) {
+            connection.release();
+        }
     }
 }
 
 /**
  * 6. Set Pembebasan Tagihan (Exempt) — Khusus RT / Bendahara
  */
-export async function setExemptService(billId, reason, actorId) {
+export async function setExemptService(billId, reason, actorId, executor = pool) {
     if (!reason || !reason.trim()) {
         return { error: "Alasan pembebasan tagihan (reason) wajib diisi masbro!" };
     }
 
     try {
-        const bill = await getBillById(billId);
+        const bill = await getBillById(billId, executor);
         if (!bill) {
             return { error: "Tagihan tidak ditemukan!" };
         }
@@ -591,9 +810,9 @@ export async function setExemptService(billId, reason, actorId) {
             return { error: "Tagihan yang sudah lunas tidak dapat dibebaskan!" };
         }
 
-        await setBillExempt(billId, reason.trim(), actorId);
+        await setBillExempt(billId, reason.trim(), actorId, executor);
 
-        const updatedBill = await getBillById(billId);
+        const updatedBill = await getBillById(billId, executor);
         return {
             message: `Tagihan #${billId} berhasil dibebaskan (Exempt).`,
             bill: updatedBill
@@ -607,13 +826,13 @@ export async function setExemptService(billId, reason, actorId) {
 /**
  * 7. Mengambil Rekapitulasi Tagihan per Periode untuk Bendahara
  */
-export async function getPeriodSummaryService(billPeriodId) {
+export async function getPeriodSummaryService(billPeriodId, executor = pool) {
     try {
-        const period = await getBillPeriodById(billPeriodId);
+        const period = await getBillPeriodById(billPeriodId, executor);
         if (!period) {
             return { error: "Periode tagihan tidak ditemukan!" };
         }
-        const summary = await getBillsSummaryByPeriodId(billPeriodId);
+        const summary = await getBillsSummaryByPeriodId(billPeriodId, executor);
         return {
             period,
             summary
@@ -627,9 +846,9 @@ export async function getPeriodSummaryService(billPeriodId) {
 /**
  * 8. Mengambil Daftar Tagihan Keluarga Sendiri (Family-Gate)
  */
-export async function getMyBillsService(userId, filters = {}) {
+export async function getMyBillsService(userId, filters = {}, executor = pool) {
     try {
-        const userData = await getAccountById(userId);
+        const userData = await getAccountById(userId, executor);
         if (!userData || userData.length === 0) {
             return { error: "Akun warga tidak ditemukan!" };
         }
@@ -638,7 +857,7 @@ export async function getMyBillsService(userId, filters = {}) {
             return { error: "Akun Anda belum terhubung dengan Kartu Keluarga (family_id)!" };
         }
 
-        const bills = await getBillsByFamilyId(familyId, filters);
+        const bills = await getBillsByFamilyId(familyId, filters, executor);
         return bills;
     } catch (err) {
         console.error("error getMyBillsService:", err);
@@ -649,23 +868,23 @@ export async function getMyBillsService(userId, filters = {}) {
 /**
  * 9. Mengambil Detail Tagihan Spesifik (dengan Validasi Hak Akses Family-Gate untuk Warga)
  */
-export async function getBillDetailWithAuthService(billId, userId, userRole) {
+export async function getBillDetailWithAuthService(billId, userId, userRole, executor = pool) {
     try {
-        const bill = await getBillById(billId);
+        const bill = await getBillById(billId, executor);
         if (!bill) {
             return { error: "Tagihan tidak ditemukan!" };
         }
 
         // Jika warga, pastikan tagihan adalah milik keluarganya
         if (userRole === 'warga') {
-            const userData = await getAccountById(userId);
+            const userData = await getAccountById(userId, executor);
             const familyId = userData && userData[0] ? userData[0].family_id : null;
             if (!familyId || String(familyId) !== String(bill.family_id)) {
                 return { unauthorized: true, error: "Akses ditolak, ini bukan tagihan keluarga lu cuy!" };
             }
         }
 
-        const payments = await getPaymentsByBillId(billId);
+        const payments = await getPaymentsByBillId(billId, executor);
         return {
             bill,
             payments
@@ -679,9 +898,9 @@ export async function getBillDetailWithAuthService(billId, userId, userRole) {
 /**
  * 10. Mengambil Daftar Pembayaran Pending untuk Verifikasi Bendahara
  */
-export async function getPendingPaymentsService(filters) {
+export async function getPendingPaymentsService(filters, executor = pool) {
     try {
-        const list = await getPendingPaymentsList(filters);
+        const list = await getPendingPaymentsList(filters, executor);
         return list;
     } catch (err) {
         console.error("error getPendingPaymentsService:", err);
@@ -692,9 +911,9 @@ export async function getPendingPaymentsService(filters) {
 /**
  * 11. Mengambil Audit Trail Pembayaran untuk RT / Superadmin / Bendahara
  */
-export async function getPaymentAuditService(filters) {
+export async function getPaymentAuditService(filters, executor = pool) {
     try {
-        const list = await getPaymentAuditList(filters);
+        const list = await getPaymentAuditList(filters, executor);
         return list;
     } catch (err) {
         console.error("error getPaymentAuditService:", err);

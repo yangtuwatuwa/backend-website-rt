@@ -2,10 +2,13 @@ import db from "../config/sqlconfig.js"
 
 let isInitialized = false
 
-export async function initTemplateSuratTable() {
+export async function initTemplateSuratTable(executor = db) {
+    const client = executor || db
+
+    if (client !== db) return
     if (isInitialized) return
     try {
-        await db.execute(`
+        await client.execute(`
             CREATE TABLE IF NOT EXISTS template_surat (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 judul VARCHAR(200) NOT NULL,
@@ -23,11 +26,12 @@ export async function initTemplateSuratTable() {
     }
 }
 
-export async function createTemplateSurat(judul, deskripsi, kategori, filePath, originalName) {
-    await initTemplateSuratTable()
+export async function createTemplateSurat(judul, deskripsi, kategori, filePath, originalName, executor = db) {
+    const client = executor || db
+    await initTemplateSuratTable(client)
     const sqlcommand = "INSERT INTO template_surat (id, judul, deskripsi, kategori, file_path, original_name) VALUES (NULL, ?, ?, ?, ?, ?)"
     try {
-        const [result] = await db.execute(sqlcommand, [judul, deskripsi || "", kategori || "", filePath, originalName || ""])
+        const [result] = await client.execute(sqlcommand, [judul, deskripsi || "", kategori || "", filePath, originalName || ""])
         return result
     } catch (err) {
         console.log("error bagian createTemplateSurat: " + err)
@@ -35,8 +39,9 @@ export async function createTemplateSurat(judul, deskripsi, kategori, filePath, 
     }
 }
 
-export async function getTemplateSuratList(search = "") {
-    await initTemplateSuratTable()
+export async function getTemplateSuratList(search = "", executor = db) {
+    const client = executor || db
+    await initTemplateSuratTable(client)
     let sqlcommand = "SELECT * FROM template_surat ORDER BY created_at DESC"
     let params = []
     
@@ -47,7 +52,7 @@ export async function getTemplateSuratList(search = "") {
     }
 
     try {
-        const [result] = await db.execute(sqlcommand, params)
+        const [result] = await client.execute(sqlcommand, params)
         return result
     } catch (err) {
         console.log("error bagian getTemplateSuratList: " + err)
@@ -55,11 +60,12 @@ export async function getTemplateSuratList(search = "") {
     }
 }
 
-export async function getTemplateSuratById(id) {
-    await initTemplateSuratTable()
+export async function getTemplateSuratById(id, executor = db) {
+    const client = executor || db
+    await initTemplateSuratTable(client)
     const sqlcommand = "SELECT * FROM template_surat WHERE id = ?"
     try {
-        const [result] = await db.execute(sqlcommand, [id])
+        const [result] = await client.execute(sqlcommand, [id])
         return result[0]
     } catch (err) {
         console.log("error bagian getTemplateSuratById: " + err)
@@ -67,8 +73,9 @@ export async function getTemplateSuratById(id) {
     }
 }
 
-export async function updateTemplateSurat(id, dataToUpdate) {
-    await initTemplateSuratTable()
+export async function updateTemplateSurat(id, dataToUpdate, executor = db) {
+    const client = executor || db
+    await initTemplateSuratTable(client)
     const fields = []
     const values = []
     
@@ -87,7 +94,7 @@ export async function updateTemplateSurat(id, dataToUpdate) {
     values.push(id)
     
     try {
-        const [result] = await db.execute(sqlcommand, values)
+        const [result] = await client.execute(sqlcommand, values)
         return result
     } catch (err) {
         console.log("error bagian updateTemplateSurat: " + err)
@@ -95,11 +102,12 @@ export async function updateTemplateSurat(id, dataToUpdate) {
     }
 }
 
-export async function deleteTemplateSurat(id) {
-    await initTemplateSuratTable()
+export async function deleteTemplateSurat(id, executor = db) {
+    const client = executor || db
+    await initTemplateSuratTable(client)
     const sqlcommand = "DELETE FROM template_surat WHERE id = ?"
     try {
-        const [result] = await db.execute(sqlcommand, [id])
+        const [result] = await client.execute(sqlcommand, [id])
         return result
     } catch (err) {
         console.log("error bagian deleteTemplateSurat: " + err)

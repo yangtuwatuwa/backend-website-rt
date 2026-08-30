@@ -1,8 +1,8 @@
 import { getKaryawanList, hasUserVoted, insertVote, getVoteResults, insertKaryawan, deleteKaryawan } from "../models/karyawan.js"
 
-export async function listKaryawan() {
+export async function listKaryawan(executor = undefined) {
     try {
-        const hasilnya = await getKaryawanList()
+        const hasilnya = await getKaryawanList(executor)
         return hasilnya
     } catch (err) {
         console.log(err)
@@ -10,12 +10,12 @@ export async function listKaryawan() {
     }
 }
 
-export async function addKaryawan(nama, jabatan, deskripsi = "", foto = null) {
+export async function addKaryawan(nama, jabatan, deskripsi = "", foto = null, executor = undefined) {
     if (!nama || !jabatan) {
         return "error: Nama dan Jabatan kandidat karyawan wajib diisi masbro!"
     }
     try {
-        const hasilnya = await insertKaryawan(nama, jabatan, deskripsi, foto)
+        const hasilnya = await insertKaryawan(nama, jabatan, deskripsi, foto, executor)
         return hasilnya
     } catch (err) {
         console.log(err)
@@ -23,9 +23,9 @@ export async function addKaryawan(nama, jabatan, deskripsi = "", foto = null) {
     }
 }
 
-export async function removeKaryawan(id) {
+export async function removeKaryawan(id, executor = undefined) {
     try {
-        const hasilnya = await deleteKaryawan(id)
+        const hasilnya = await deleteKaryawan(id, executor)
         return hasilnya
     } catch (err) {
         console.log(err)
@@ -33,10 +33,10 @@ export async function removeKaryawan(id) {
     }
 }
 
-export async function castVote(accountId, karyawanId) {
+export async function castVote(accountId, karyawanId, executor = undefined) {
     try {
         // 1. Cek dulu apakah user udah pernah ngevote
-        const sudahVote = await hasUserVoted(accountId)
+        const sudahVote = await hasUserVoted(accountId, executor)
         if (typeof sudahVote === "string" && sudahVote.startsWith("error")) {
             return sudahVote
         }
@@ -45,7 +45,7 @@ export async function castVote(accountId, karyawanId) {
         }
 
         // 2. Kalo belum ngevote, baru masukin data vote-nya
-        const hasilnya = await insertVote(accountId, karyawanId)
+        const hasilnya = await insertVote(accountId, karyawanId, executor)
         return hasilnya
     } catch (err) {
         console.log(err)
@@ -53,9 +53,9 @@ export async function castVote(accountId, karyawanId) {
     }
 }
 
-export async function listVoteResults() {
+export async function listVoteResults(executor = undefined) {
     try {
-        const hasilnya = await getVoteResults()
+        const hasilnya = await getVoteResults(executor)
         return hasilnya
     } catch (err) {
         console.log(err)

@@ -1,5 +1,7 @@
 import pool from "../config/sqlconfig.js";
 
+let deleteWargaSavepointCounter = 0;
+
 /**
  * Error bisnis yang dapat dipetakan controller ke status HTTP yang tepat.
  */
@@ -87,12 +89,21 @@ async function assertFamilyHasNoFinancialHistory(connection, familyId) {
  * terakhir dalam KK, seluruh warga soft-deleted dari KK tersebut di-hard-delete
  * lalu family dihapus agar FK tidak menghalangi cleanup terakhir.
  */
-export async function deleteWarga(wargaId, options = {}) {
+export async function deleteWarga(wargaId, options = {}, executor = undefined) {
     const id = assertWargaId(wargaId);
-    const connection = await pool.getConnection();
+    const ownsTransaction = !executor;
+    const connection = executor || await pool.getConnection();
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_delete_warga_${++deleteWargaSavepointCounter}`;
+    let transactionStarted = false;
+    let savepointCreated = false;
 
     try {
-        await connection.beginTransaction();
+        if (ownsTransaction) {
+            await connection.beginTransaction();
+            transactionStarted = true;
+        }
 
         // Lock baris warga + family agar dua request delete paralel tidak dapat
         // sama-sama menyimpulkan bahwa mereka adalah anggota terakhir.
@@ -157,6 +168,11 @@ export async function deleteWarga(wargaId, options = {}) {
         }
 
         // Semua validasi pemblokir dilakukan sebelum mutasi pertama.
+        if (savepointName) {
+            await connection.query(`SAVEPOINT ${savepointName}`);
+            savepointCreated = true;
+        }
+
         const [softDeleteResult] = await connection.execute(
             `UPDATE warga
              SET status_data = 'ditolak'
@@ -218,7 +234,14 @@ export async function deleteWarga(wargaId, options = {}) {
             familyDeleted
         });
 
-        await connection.commit();
+        if (ownsTransaction) {
+            await connection.commit();
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+            savepointCreated = false;
+        }
+
         return {
             deletedId: id,
             nama: warga.nama,
@@ -227,9 +250,31 @@ export async function deleteWarga(wargaId, options = {}) {
             familyDeleted
         };
     } catch (error) {
-        await connection.rollback();
+        if (transactionStarted) {
+            try {
+                await connection.rollback();
+            } catch (rollbackError) {
+                console.error("[WargaDeletion] Gagal rollback transaksi:", rollbackError);
+            }
+            transactionStarted = false;
+        } else if (savepointCreated) {
+            try {
+                await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            } catch (rollbackError) {
+                console.error("[WargaDeletion] Gagal rollback savepoint:", rollbackError);
+            }
+
+            try {
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+            } catch (releaseError) {
+                console.error("[WargaDeletion] Gagal release savepoint:", releaseError);
+            }
+        }
+
         throw error;
     } finally {
-        connection.release();
+        if (ownsTransaction) {
+            connection.release();
+        }
     }
 }

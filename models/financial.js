@@ -8,10 +8,11 @@ import db from "../config/sqlconfig.js";
 // Begitu bill_period dibuat & dipublish, nominal di-snapshot ke tabel 'bills'.
 // =========================================================================
 
-export async function getFinancialSettings() {
+export async function getFinancialSettings(executor = db) {
+    const client = executor || db;
     const sqlcommand = "SELECT * FROM financial_settings WHERE id = 1";
     try {
-        const [result] = await db.execute(sqlcommand);
+        const [result] = await client.execute(sqlcommand);
         return result[0];
     } catch (err) {
         console.error("error getFinancialSettings:", err);
@@ -19,10 +20,11 @@ export async function getFinancialSettings() {
     }
 }
 
-export async function updateFinancialSettings(iplNominal, previousBalance) {
+export async function updateFinancialSettings(iplNominal, previousBalance, executor = db) {
+    const client = executor || db;
     const sqlcommand = "UPDATE financial_settings SET ipl_nominal = ?, previous_balance = ? WHERE id = 1";
     try {
-        const [result] = await db.execute(sqlcommand, [iplNominal, previousBalance]);
+        const [result] = await client.execute(sqlcommand, [iplNominal, previousBalance]);
         return result;
     } catch (err) {
         console.error("error updateFinancialSettings:", err);
@@ -38,8 +40,9 @@ export async function updateFinancialSettings(iplNominal, previousBalance) {
  * Helper terpadu untuk mencatat transaksi masuk/keluar ke Buku Kas RT (financial_ledger).
  * Dipakai bersama oleh: Approval IPL, Approval Kas, Manual Payment, Expense, dan Income.
  */
-export async function writeLedgerEntry({ type = 'in', amount, sourceType, description, receiptFile = null, connection = null }) {
-    const client = connection || db;
+export async function writeLedgerEntry(data, executor = undefined) {
+    const { type = 'in', amount, sourceType, description, receiptFile = null, connection = null } = data;
+    const client = executor || connection || db;
     const cleanAmount = Number(amount);
     const cleanSourceType = String(sourceType || "lainnya").toLowerCase().trim();
     const cleanDesc = description || "-";
@@ -49,6 +52,17 @@ export async function writeLedgerEntry({ type = 'in', amount, sourceType, descri
         const [result] = await client.execute(sql, [type, cleanAmount, cleanSourceType, cleanDesc, receiptFile]);
         return result;
     } catch (err) {
+        if (client !== db) {
+            // Injected executors must not run DDL. If the full insert fails,
+            // receipt_file is omitted and its value is preserved in description.
+            const fallbackDesc = receiptFile ? `[Receipt: ${receiptFile}] ${cleanDesc}` : cleanDesc;
+            const [result] = await client.execute(
+                "INSERT INTO financial_ledger (id, type, amount, source_type, description) VALUES (NULL, ?, ?, ?, ?)",
+                [type, cleanAmount, cleanSourceType, fallbackDesc]
+            );
+            return result;
+        }
+
         // Fallback jika kolom receipt_file belum ada
         try {
             await client.execute("ALTER TABLE financial_ledger ADD COLUMN IF NOT EXISTS receipt_file VARCHAR(255)");
@@ -68,11 +82,12 @@ export async function writeLedgerEntry({ type = 'in', amount, sourceType, descri
     }
 }
 
-export async function insertLedger(type, amount, sourceType, description, receiptFile = null, connection = null) {
-    return writeLedgerEntry({ type, amount, sourceType, description, receiptFile, connection });
+export async function insertLedger(type, amount, sourceType, description, receiptFile = null, executor = db) {
+    return writeLedgerEntry({ type, amount, sourceType, description, receiptFile }, executor);
 }
 
-export async function getMonthlyFinancialSummary(year = new Date().getFullYear()) {
+export async function getMonthlyFinancialSummary(year = new Date().getFullYear(), executor = db) {
+    const client = executor || db;
     const sqlcommand = `
         SELECT 
             MONTH(transaction_date) AS month,
@@ -85,7 +100,7 @@ export async function getMonthlyFinancialSummary(year = new Date().getFullYear()
         ORDER BY month ASC
     `;
     try {
-        const [result] = await db.execute(sqlcommand, [year]);
+        const [result] = await client.execute(sqlcommand, [year]);
         return result;
     } catch (err) {
         console.error("error getMonthlyFinancialSummary:", err);
@@ -93,12 +108,13 @@ export async function getMonthlyFinancialSummary(year = new Date().getFullYear()
     }
 }
 
-export async function getLedgerStats() {
+export async function getLedgerStats(executor = db) {
+    const client = executor || db;
     const sqlIncome = "SELECT SUM(amount) AS total FROM financial_ledger WHERE type = 'in'";
     const sqlExpense = "SELECT SUM(amount) AS total FROM financial_ledger WHERE type = 'out'";
     try {
-        const [incomeRes] = await db.execute(sqlIncome);
-        const [expenseRes] = await db.execute(sqlExpense);
+        const [incomeRes] = await client.execute(sqlIncome);
+        const [expenseRes] = await client.execute(sqlExpense);
         return {
             total_income: incomeRes[0].total || 0,
             total_expense: expenseRes[0].total || 0
@@ -109,10 +125,11 @@ export async function getLedgerStats() {
     }
 }
 
-export async function getLedgerList() {
+export async function getLedgerList(executor = db) {
+    const client = executor || db;
     const sqlcommand = "SELECT * FROM financial_ledger ORDER BY transaction_date DESC, id DESC";
     try {
-        const [result] = await db.execute(sqlcommand);
+        const [result] = await client.execute(sqlcommand);
         return result;
     } catch (err) {
         console.error("error getLedgerList:", err);
@@ -125,7 +142,8 @@ export async function getLedgerList() {
 // Mengambil data tagihan aktif langsung dari tabel 'bills' join 'bill_periods'
 // =========================================================================
 
-export async function getArrearsTracking(month, year) {
+export async function getArrearsTracking(month, year, executor = db) {
+    const client = executor || db;
     const targetMonth = Number(month);
     const targetYear = Number(year);
 
@@ -162,7 +180,7 @@ export async function getArrearsTracking(month, year) {
         ORDER BY f.id ASC
     `;
     try {
-        const [result] = await db.execute(sqlcommand, [targetMonth, targetYear]);
+        const [result] = await client.execute(sqlcommand, [targetMonth, targetYear]);
         return result;
     } catch (err) {
         console.error("error getArrearsTracking:", err);
