@@ -97,7 +97,7 @@ export async function getFinancialSummaryService(year = new Date().getFullYear()
 /**
  * Statistik Dashboard Finansial & Kas RT
  */
-export async function getDashboardStatsService(executor = pool) {
+export async function getDashboardStatsService(executor = undefined) {
     try {
         const wargas = await getWargas(executor);
         const totalWarga = Array.isArray(wargas) ? wargas.length : 0;

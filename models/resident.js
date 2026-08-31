@@ -1,10 +1,10 @@
 import db from "../config/sqlconfig.js"
 import { autoHealFamilyHeads } from "./inputwarganya.js"
 
-export async function getWarganya(executor = db) {
+export async function getWarganya(executor = undefined) {
     const client = executor || db
 
-    await autoHealFamilyHeads(client)
+    await autoHealFamilyHeads(executor)
     const sqlcommand = `
         SELECT 
             f.id AS family_id, 
@@ -291,9 +291,9 @@ export async function getPopulationStats(executor = db) {
     }
 }
 
-export async function getKepalaKeluargaList(executor = db) {
+export async function getKepalaKeluargaList(executor = undefined) {
     const client = executor || db
-    await autoHealFamilyHeads(client);
+    await autoHealFamilyHeads(executor);
     const sqlcommand = `
         SELECT 
             f.id AS id,

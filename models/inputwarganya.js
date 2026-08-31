@@ -3,18 +3,20 @@ import db from "../config/sqlconfig.js"
 let autoHealSavepointCounter = 0
 let createWargaSavepointCounter = 0
 
-export async function autoHealFamilyHeads(executor = db) {
-    const client = executor || db
-    const usesInjectedExecutor = client !== db
-    const savepointName = usesInjectedExecutor
-        ? `sp_auto_heal_family_heads_${++autoHealSavepointCounter}`
-        : null
+export async function autoHealFamilyHeads(executor = undefined) {
+    const ownsTransaction = !executor
+    let client = executor
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_auto_heal_family_heads_${++autoHealSavepointCounter}`
+    let transactionStarted = false
     let savepointCreated = false
 
     try {
-        if (savepointName) {
-            await client.query(`SAVEPOINT ${savepointName}`)
-            savepointCreated = true
+        if (ownsTransaction) {
+            client = await db.getConnection()
+            await client.beginTransaction()
+            transactionStarted = true
         }
 
         const [families] = await client.execute(`
@@ -34,18 +36,32 @@ export async function autoHealFamilyHeads(executor = db) {
                     if (Array.isArray(firstWarga) && firstWarga.length > 0) {
                         const newHeadId = firstWarga[0].id
                         console.log(`[Auto-Heal Family Head] Fixing family ${fam.family_id}: kepala_keluarga_id (${fam.kepala_keluarga_id}) -> ${newHeadId}`)
+                        if (!ownsTransaction && !savepointCreated) {
+                            await client.query(`SAVEPOINT ${savepointName}`)
+                            savepointCreated = true
+                        }
                         await client.execute("UPDATE family SET kepala_keluarga_id = ? WHERE id = ?", [newHeadId, fam.family_id])
                     }
                 }
             }
         }
 
-        if (savepointCreated) {
+        if (transactionStarted) {
+            await client.commit()
+            transactionStarted = false
+        } else if (savepointCreated) {
             await client.query(`RELEASE SAVEPOINT ${savepointName}`)
             savepointCreated = false
         }
     } catch (err) {
-        if (savepointCreated) {
+        if (transactionStarted) {
+            try {
+                await client.rollback()
+            } catch (rollbackErr) {
+                console.log("[Auto-Heal Transaction Rollback Error]:", rollbackErr)
+            }
+            transactionStarted = false
+        } else if (savepointCreated) {
             try {
                 await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`)
             } catch (rollbackErr) {
@@ -60,19 +76,28 @@ export async function autoHealFamilyHeads(executor = db) {
         }
 
         console.log("[Auto-Heal Error]:", err)
+    } finally {
+        if (ownsTransaction && client) {
+            client.release()
+        }
     }
 }
 
-export async function warganya(nikk, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, status = "diterima", isKepalaKeluarga = false, executor = db){
-    const client = executor || db
-    const usesInjectedExecutor = client !== db
-    const savepointName = usesInjectedExecutor
-        ? `sp_create_warga_${++createWargaSavepointCounter}`
-        : null
+export async function warganya(nikk, nama, jenisKelamin, tglLahir, statusHidup, noHp, umur, familyId, houseId, status = "diterima", isKepalaKeluarga = false, executor = undefined){
+    const ownsTransaction = !executor
+    let client = executor
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_create_warga_${++createWargaSavepointCounter}`
+    let transactionStarted = false
     let savepointCreated = false
 
     try {
-        if (savepointName) {
+        if (ownsTransaction) {
+            client = await db.getConnection()
+            await client.beginTransaction()
+            transactionStarted = true
+        } else {
             await client.query(`SAVEPOINT ${savepointName}`)
             savepointCreated = true
         }
@@ -109,14 +134,24 @@ export async function warganya(nikk, nama, jenisKelamin, tglLahir, statusHidup, 
             }
         }
 
-        if (savepointCreated) {
+        if (transactionStarted) {
+            await client.commit()
+            transactionStarted = false
+        } else if (savepointCreated) {
             await client.query(`RELEASE SAVEPOINT ${savepointName}`)
             savepointCreated = false
         }
         
         return hasilnya;
     } catch (err) {
-        if (savepointCreated) {
+        if (transactionStarted) {
+            try {
+                await client.rollback()
+            } catch (rollbackErr) {
+                console.log("error rollback transaction warganya:", rollbackErr)
+            }
+            transactionStarted = false
+        } else if (savepointCreated) {
             try {
                 await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`)
             } catch (rollbackErr) {
@@ -132,12 +167,16 @@ export async function warganya(nikk, nama, jenisKelamin, tglLahir, statusHidup, 
 
         console.log(err)
         return "error mas di model : "+ err;
+    } finally {
+        if (ownsTransaction && client) {
+            client.release()
+        }
     }
 }
 
-export async function getWargas(executor = db) {
+export async function getWargas(executor = undefined) {
     const client = executor || db
-    await autoHealFamilyHeads(client);
+    await autoHealFamilyHeads(executor);
     const sqlcommand = `
         SELECT 
             w.id AS warga_id,
