@@ -1,5 +1,5 @@
 -- =================================================================================
--- MIGRATION: RESET & INIT COMPLETE DATABASE SCHEMA (24 TABEL LENGKAP)
+-- MIGRATION: RESET & INIT COMPLETE DATABASE SCHEMA (25 TABEL LENGKAP)
 -- Target: Setup Database RT dari Nol (Clean Reset & Recreate)
 -- =================================================================================
 
@@ -15,6 +15,7 @@ DROP TABLE IF EXISTS `kas_contributions`;
 DROP TABLE IF EXISTS `financial_ledger`;
 DROP TABLE IF EXISTS `financial_settings`;
 DROP TABLE IF EXISTS `template_surat`;
+DROP TABLE IF EXISTS `archive_media`;
 DROP TABLE IF EXISTS `surat_keluar`;
 DROP TABLE IF EXISTS `surat_masuk`;
 DROP TABLE IF EXISTS `otp_codes`;
@@ -34,7 +35,7 @@ DROP TABLE IF EXISTS `ipl_payment`;
 DROP TABLE IF EXISTS `kas_payment`;
 DROP TABLE IF EXISTS `payment`;
 
--- 2. CREATE 24 TABEL DENGAN SKEMA TERMUTAKHIR
+-- 2. CREATE 25 TABEL DENGAN SKEMA TERMUTAKHIR
 
 -- 1. Tabel Rumah (house)
 CREATE TABLE `house` (
@@ -277,7 +278,25 @@ CREATE TABLE `template_surat` (
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 19. Tabel Periode Tagihan IPL (bill_periods)
+-- 19. Tabel Arsip Foto dan Video Publik (archive_media)
+CREATE TABLE `archive_media` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `judul` VARCHAR(200) NOT NULL,
+    `kategori` VARCHAR(100) NOT NULL,
+    `media_type` ENUM('image', 'video') NOT NULL,
+    `mime_type` VARCHAR(100) NOT NULL,
+    `file_path` VARCHAR(255) NOT NULL,
+    `original_name` VARCHAR(255) NOT NULL,
+    `file_size` BIGINT UNSIGNED NOT NULL,
+    `uploaded_by` INT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_archive_media_created_at` (`created_at`),
+    INDEX `idx_archive_media_category` (`kategori`),
+    INDEX `idx_archive_media_type` (`media_type`),
+    CONSTRAINT `fk_archive_media_uploader` FOREIGN KEY (`uploaded_by`) REFERENCES `acount` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 20. Tabel Periode Tagihan IPL (bill_periods)
 CREATE TABLE `bill_periods` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `title` VARCHAR(255) NOT NULL,
@@ -294,7 +313,7 @@ CREATE TABLE `bill_periods` (
     CONSTRAINT `fk_bill_periods_created_by` FOREIGN KEY (`created_by`) REFERENCES `acount` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 20. Tabel Tagihan IPL Warga (bills) - Berbasis family_id
+-- 21. Tabel Tagihan IPL Warga (bills) - Berbasis family_id
 CREATE TABLE `bills` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `bill_period_id` INT NOT NULL,
@@ -317,7 +336,7 @@ CREATE TABLE `bills` (
     CONSTRAINT `fk_bills_exempt_by` FOREIGN KEY (`exempt_by`) REFERENCES `acount` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 21. Tabel Pembayaran IPL (payments) - Berbasis family_id
+-- 22. Tabel Pembayaran IPL (payments) - Berbasis family_id
 CREATE TABLE `payments` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `family_id` INT NOT NULL,
@@ -339,7 +358,7 @@ CREATE TABLE `payments` (
     CONSTRAINT `fk_payments_verified_by` FOREIGN KEY (`verified_by`) REFERENCES `acount` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 22. Tabel Penghubung Rapel (payment_bill_links)
+-- 23. Tabel Penghubung Rapel (payment_bill_links)
 CREATE TABLE `payment_bill_links` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `payment_id` INT NOT NULL,
@@ -352,7 +371,7 @@ CREATE TABLE `payment_bill_links` (
     CONSTRAINT `fk_pbl_bill` FOREIGN KEY (`bill_id`) REFERENCES `bills` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 23. Tabel Iuran Kas RT (kas_contributions) - Berbasis family_id
+-- 24. Tabel Iuran Kas RT (kas_contributions) - Berbasis family_id
 CREATE TABLE `kas_contributions` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `family_id` INT NOT NULL,
@@ -377,7 +396,7 @@ CREATE TABLE `kas_contributions` (
     CONSTRAINT `fk_kas_verified_by` FOREIGN KEY (`verified_by`) REFERENCES `acount` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 24. Tabel Notifikasi In-App (notifications)
+-- 25. Tabel Notifikasi In-App (notifications)
 CREATE TABLE `notifications` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `account_id` INT NOT NULL,

@@ -1,6 +1,7 @@
 import multer from "multer"
 import path from "path"
 import fs from "fs"
+import crypto from "crypto"
 
 // Konfigurasi tempat penyimpanan dan penamaan file
 const storage = multer.diskStorage({
@@ -102,6 +103,63 @@ export const uploadTemplateMiddleware = (req, res, next) => {
             }
             return res.status(400).json({ pesan: "Terjadi error pas upload file template: " + err.message })
         } else if (err) {
+            return res.status(400).json({ pesan: err.message })
+        }
+        next()
+    })
+}
+
+// Arsip kegiatan sengaja dipisahkan dari dokumen sensitif. File tetap hanya
+// dapat ditulis melalui endpoint pengurus, tetapi dapat dibaca oleh publik.
+const archiveStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = "./uploads/arsip"
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true })
+        }
+        cb(null, uploadDir)
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase()
+        cb(null, `arsip-${crypto.randomUUID()}${ext}`)
+    }
+})
+
+const archiveExtensions = new Set([
+    ".jpg", ".jpeg", ".png", ".webp", ".gif",
+    ".mp4", ".webm", ".mov", ".m4v", ".mpeg", ".mpg"
+])
+
+const archiveFileFilter = (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase()
+
+    // MIME multipart dapat keliru (mis. application/octet-stream). Validasi
+    // yang menentukan dilakukan dari signature biner setelah file tersimpan.
+    if (archiveExtensions.has(ext)) {
+        return cb(null, true)
+    }
+
+    cb(new Error("Format arsip tidak didukung. Hanya file foto atau video yang diperbolehkan."), false)
+}
+
+const archiveUpload = multer({
+    storage: archiveStorage,
+    fileFilter: archiveFileFilter,
+    limits: {
+        files: 1,
+        fileSize: 100 * 1024 * 1024 // Batas awal; foto dibatasi lagi menjadi 10 MB setelah inspeksi isi.
+    }
+})
+
+export const uploadArchiveMiddleware = (req, res, next) => {
+    archiveUpload.single("file")(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            if (err.code === "LIMIT_FILE_SIZE") {
+                return res.status(400).json({ pesan: "Video terlalu besar. Ukuran maksimal arsip adalah 100 MB." })
+            }
+            return res.status(400).json({ pesan: "Terjadi error saat upload arsip: " + err.message })
+        }
+        if (err) {
             return res.status(400).json({ pesan: err.message })
         }
         next()

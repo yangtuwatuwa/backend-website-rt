@@ -3,3 +3,5 @@ node_modules
 .env.test
 .env.test.local
 secure_uploads
+uploads/arsip/*
+!uploads/arsip/.gitkeep

@@ -1,7 +1,7 @@
 import pool from "../config/sqlconfig.js";
 
 /**
- * Migration: Setup Inisialisasi Database Lengkap dari Nol (Reset & Recreate 24 Tabel)
+ * Migration: Setup Inisialisasi Database Lengkap dari Nol (Reset & Recreate 25 Tabel)
  * 
  * PERINGATAN:
  * Script ini menjalankan DROP TABLE IF EXISTS sebelum CREATE TABLE.
@@ -9,7 +9,7 @@ import pool from "../config/sqlconfig.js";
  */
 export async function up() {
     console.log("===================================================================");
-    console.log("🚀 MEMULAI RESET & INISIALISASI SKEMA DATABASE BARU (24 TABEL)");
+    console.log("🚀 MEMULAI RESET & INISIALISASI SKEMA DATABASE BARU (25 TABEL)");
     console.log("===================================================================\n");
 
     const connection = await pool.getConnection();
@@ -38,6 +38,7 @@ export async function up() {
             "financial_ledger",
             "financial_settings",
             "template_surat",
+            "archive_media",
             "surat_keluar",
             "surat_masuk",
             "otp_codes",
@@ -66,12 +67,12 @@ export async function up() {
         console.log("   ✅ Seluruh tabel lama berhasil dibersihkan.");
 
         // -----------------------------------------------------------------
-        // 3. Buat Ulang Seluruh 24 Tabel dengan Skema Terkini
+        // 3. Buat Ulang Seluruh 25 Tabel dengan Skema Terkini
         // -----------------------------------------------------------------
-        console.log("\n📦 3. Membangun 24 tabel dengan skema termutakhir...\n");
+        console.log("\n📦 3. Membangun 25 tabel dengan skema termutakhir...\n");
 
         // 1. house
-        console.log("   [1/24] Membuat tabel 'house'...");
+        console.log("   [1/25] Membuat tabel 'house'...");
         await connection.execute(`
             CREATE TABLE house (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -84,7 +85,7 @@ export async function up() {
         `);
 
         // 2. family (kepala_keluarga_id NULL-able)
-        console.log("   [2/24] Membuat tabel 'family'...");
+        console.log("   [2/25] Membuat tabel 'family'...");
         await connection.execute(`
             CREATE TABLE family (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -100,7 +101,7 @@ export async function up() {
         `);
 
         // 3. warga (tgl_lahir VARCHAR(255) untuk ciphertext)
-        console.log("   [3/24] Membuat tabel 'warga'...");
+        console.log("   [3/25] Membuat tabel 'warga'...");
         await connection.execute(`
             CREATE TABLE warga (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -131,7 +132,7 @@ export async function up() {
         `);
 
         // 4. acount (email_encrypted VARBINARY(255) & email_blind_idx CHAR(64) UNIQUE)
-        console.log("   [4/24] Membuat tabel 'acount'...");
+        console.log("   [4/25] Membuat tabel 'acount'...");
         await connection.execute(`
             CREATE TABLE acount (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -152,7 +153,7 @@ export async function up() {
         `);
 
         // 5. document
-        console.log("   [5/24] Membuat tabel 'document'...");
+        console.log("   [5/25] Membuat tabel 'document'...");
         await connection.execute(`
             CREATE TABLE document (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -169,7 +170,7 @@ export async function up() {
         `);
 
         // 6. report
-        console.log("   [6/24] Membuat tabel 'report'...");
+        console.log("   [6/25] Membuat tabel 'report'...");
         await connection.execute(`
             CREATE TABLE report (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -187,7 +188,7 @@ export async function up() {
         `);
 
         // 7. letter
-        console.log("   [7/24] Membuat tabel 'letter'...");
+        console.log("   [7/25] Membuat tabel 'letter'...");
         await connection.execute(`
             CREATE TABLE letter (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -205,7 +206,7 @@ export async function up() {
         `);
 
         // 8. announcement
-        console.log("   [8/24] Membuat tabel 'announcement'...");
+        console.log("   [8/25] Membuat tabel 'announcement'...");
         await connection.execute(`
             CREATE TABLE announcement (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -217,7 +218,7 @@ export async function up() {
         `);
 
         // 9. agenda
-        console.log("   [9/24] Membuat tabel 'agenda'...");
+        console.log("   [9/25] Membuat tabel 'agenda'...");
         await connection.execute(`
             CREATE TABLE agenda (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -234,7 +235,7 @@ export async function up() {
         `);
 
         // 10. karyawan
-        console.log("   [10/24] Membuat tabel 'karyawan'...");
+        console.log("   [10/25] Membuat tabel 'karyawan'...");
         await connection.execute(`
             CREATE TABLE karyawan (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -247,7 +248,7 @@ export async function up() {
         `);
 
         // 11. vote_karyawan
-        console.log("   [11/24] Membuat tabel 'vote_karyawan'...");
+        console.log("   [11/25] Membuat tabel 'vote_karyawan'...");
         await connection.execute(`
             CREATE TABLE vote_karyawan (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -262,7 +263,7 @@ export async function up() {
         `);
 
         // 12. access_logs
-        console.log("   [12/24] Membuat tabel 'access_logs'...");
+        console.log("   [12/25] Membuat tabel 'access_logs'...");
         await connection.execute(`
             CREATE TABLE access_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -278,7 +279,7 @@ export async function up() {
         `);
 
         // 13. otp_codes
-        console.log("   [13/24] Membuat tabel 'otp_codes'...");
+        console.log("   [13/25] Membuat tabel 'otp_codes'...");
         await connection.execute(`
             CREATE TABLE otp_codes (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -295,7 +296,7 @@ export async function up() {
         `);
 
         // 14. financial_settings
-        console.log("   [14/24] Membuat tabel 'financial_settings'...");
+        console.log("   [14/25] Membuat tabel 'financial_settings'...");
         await connection.execute(`
             CREATE TABLE financial_settings (
                 id INT PRIMARY KEY DEFAULT 1,
@@ -311,7 +312,7 @@ export async function up() {
         `);
 
         // 15. financial_ledger
-        console.log("   [15/24] Membuat tabel 'financial_ledger'...");
+        console.log("   [15/25] Membuat tabel 'financial_ledger'...");
         await connection.execute(`
             CREATE TABLE financial_ledger (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -327,7 +328,7 @@ export async function up() {
         `);
 
         // 16. surat_masuk
-        console.log("   [16/24] Membuat tabel 'surat_masuk'...");
+        console.log("   [16/25] Membuat tabel 'surat_masuk'...");
         await connection.execute(`
             CREATE TABLE surat_masuk (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -340,7 +341,7 @@ export async function up() {
         `);
 
         // 17. surat_keluar
-        console.log("   [17/24] Membuat tabel 'surat_keluar'...");
+        console.log("   [17/25] Membuat tabel 'surat_keluar'...");
         await connection.execute(`
             CREATE TABLE surat_keluar (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -353,7 +354,7 @@ export async function up() {
         `);
 
         // 18. template_surat
-        console.log("   [18/24] Membuat tabel 'template_surat'...");
+        console.log("   [18/25] Membuat tabel 'template_surat'...");
         await connection.execute(`
             CREATE TABLE template_surat (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -367,8 +368,29 @@ export async function up() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
-        // 19. bill_periods
-        console.log("   [19/24] Membuat tabel 'bill_periods'...");
+        // 19. archive_media
+        console.log("   [19/25] Membuat tabel 'archive_media'...");
+        await connection.execute(`
+            CREATE TABLE archive_media (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                judul VARCHAR(200) NOT NULL,
+                kategori VARCHAR(100) NOT NULL,
+                media_type ENUM('image', 'video') NOT NULL,
+                mime_type VARCHAR(100) NOT NULL,
+                file_path VARCHAR(255) NOT NULL,
+                original_name VARCHAR(255) NOT NULL,
+                file_size BIGINT UNSIGNED NOT NULL,
+                uploaded_by INT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_archive_media_created_at (created_at),
+                INDEX idx_archive_media_category (kategori),
+                INDEX idx_archive_media_type (media_type),
+                CONSTRAINT fk_archive_media_uploader FOREIGN KEY (uploaded_by) REFERENCES acount(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        // 20. bill_periods
+        console.log("   [20/25] Membuat tabel 'bill_periods'...");
         await connection.execute(`
             CREATE TABLE bill_periods (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -387,8 +409,8 @@ export async function up() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
-        // 20. bills (family_id)
-        console.log("   [20/24] Membuat tabel 'bills' (family_id)...");
+        // 21. bills (family_id)
+        console.log("   [21/25] Membuat tabel 'bills' (family_id)...");
         await connection.execute(`
             CREATE TABLE bills (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -413,8 +435,8 @@ export async function up() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
-        // 21. payments (family_id)
-        console.log("   [21/24] Membuat tabel 'payments' (family_id)...");
+        // 22. payments (family_id)
+        console.log("   [22/25] Membuat tabel 'payments' (family_id)...");
         await connection.execute(`
             CREATE TABLE payments (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -438,8 +460,8 @@ export async function up() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
-        // 22. payment_bill_links
-        console.log("   [22/24] Membuat tabel 'payment_bill_links'...");
+        // 23. payment_bill_links
+        console.log("   [23/25] Membuat tabel 'payment_bill_links'...");
         await connection.execute(`
             CREATE TABLE payment_bill_links (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -454,8 +476,8 @@ export async function up() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
-        // 23. kas_contributions (family_id)
-        console.log("   [23/24] Membuat tabel 'kas_contributions' (family_id)...");
+        // 24. kas_contributions (family_id)
+        console.log("   [24/25] Membuat tabel 'kas_contributions' (family_id)...");
         await connection.execute(`
             CREATE TABLE kas_contributions (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -482,8 +504,8 @@ export async function up() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
-        // 24. notifications
-        console.log("   [24/24] Membuat tabel 'notifications'...");
+        // 25. notifications
+        console.log("   [25/25] Membuat tabel 'notifications'...");
         await connection.execute(`
             CREATE TABLE notifications (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -510,7 +532,7 @@ export async function up() {
         await connection.commit();
 
         console.log("\n===================================================================");
-        console.log("🎉 SEMUA 24 TABEL SKEMA DATABASE BERHASIL DIRESET & DIBANGUN 100%!");
+        console.log("🎉 SEMUA 25 TABEL SKEMA DATABASE BERHASIL DIRESET & DIBANGUN 100%!");
         console.log("===================================================================");
 
         return true;

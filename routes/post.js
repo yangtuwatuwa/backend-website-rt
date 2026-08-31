@@ -23,6 +23,11 @@ import { getDashboardStatsController } from "../controllers/financeController.js
 app.get("/dashboard-summary", dashboardSummaryController)
 app.get("/dashboard-stats", getDashboardStatsController)
 
+// Galeri landing page — metadata dan file dapat dibaca tanpa JWT.
+import { getPublicArchiveMediaController, streamPublicArchiveMediaController } from "../controllers/archiveMediaController.js"
+app.get("/arsip-media", getPublicArchiveMediaController)
+app.get("/arsip-media/:id/file", streamPublicArchiveMediaController)
+
 // Route Payment Gateway Webhook (Midtrans / Xendit / Tripay / Sandbox Callback)
 import { handlePaymentWebhookController } from "../controllers/paymentGatewayController.js"
 app.post("/payment-webhook", handlePaymentWebhookController)

@@ -32,7 +32,8 @@ import {
     updateTemplateSuratController, 
     deleteTemplateSuratController 
 } from "../controllers/templateSuratController.js"
-import { uploadTemplateMiddleware, uploadSensitifMiddleware } from "../middlewares/multerConfig.js"
+import { uploadArchiveMiddleware, uploadTemplateMiddleware, uploadSensitifMiddleware } from "../middlewares/multerConfig.js"
+import { uploadArchiveMediaController, deleteArchiveMediaController } from "../controllers/archiveMediaController.js"
 import { createKaryawanController, removeKaryawanController } from "../controllers/karyawan.js"
 import { deleteSensitifDataController } from "../controllers/documentController.js"
 import { registerFamilyController, registerResidentOnlyController } from "../controllers/familyRegistrationController.js"
@@ -121,6 +122,10 @@ app.get("/template-surat", checkRoles('rt', 'sekretaris'), getTemplateSuratListC
 app.get("/template-surat/download/:id", checkRoles('rt', 'sekretaris'), downloadTemplateSuratController)
 app.patch("/template-surat/:id", checkRoles('rt', 'sekretaris'), uploadTemplateMiddleware, updateTemplateSuratController)
 app.delete("/template-surat/:id", checkRoles('rt', 'sekretaris'), deleteTemplateSuratController)
+
+// Arsip dokumentasi kegiatan: penulisan tetap khusus pengurus.
+app.post("/arsip-media", checkRoles('rt', 'sekretaris'), uploadArchiveMiddleware, uploadArchiveMediaController)
+app.delete("/arsip-media/:id", checkRoles('rt', 'sekretaris'), deleteArchiveMediaController)
 
 
 app.post("/datawarga", checkRoles('rt', 'sekretaris'), warga)

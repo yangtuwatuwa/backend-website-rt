@@ -8,6 +8,7 @@
   "main": "index.js",
   "scripts": {
     "test:session": "node --experimental-test-module-mocks --test test/sessionIsolation.test.js",
+    "test:archive-media": "node --test test/archiveMediaValidation.test.js",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test:db:setup": "node scripts/setupTestDatabase.js",
     "reset-db": "node utils/resetDb.js",
@@ -15,6 +16,7 @@
     "migrate:rapel": "node migrations/20260819_migrate_payments_to_rapel.js",
     "migrate:family": "node migrations/20260819_migrate_to_family_scope.js",
     "migrate:notifications": "node migrations/20260819_create_notifications_table.js",
+    "migrate:archive-media": "node migrations/20260831_create_archive_media.js",
     "migrate": "node migrations/20260819_migrate_to_family_scope.js"
   },
   "dependencies": {
