@@ -1,8 +1,6 @@
 import CryptoJS from "crypto-js";
 import dotenv from "dotenv"
 dotenv.config()
-const keyCrypto =process.env.KEYENCRYPT
-console.log(keyCrypto)
 export function encryptEmails(email) {
     const keyCrypto = process.env.KEYENCRYPT
     const cipherText  = CryptoJS.AES.encrypt(email , keyCrypto).toString() 

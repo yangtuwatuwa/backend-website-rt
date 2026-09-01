@@ -6,7 +6,7 @@ import {
     markNotificationReadController,
     markAllNotificationsReadController
 } from "../controllers/notificationController.js";
-import { getMyAccountController, updateMyAccountController } from "../controllers/accountProfileController.js";
+import { updateMyAccountController } from "../controllers/accountProfileController.js";
 
 const router = express.Router();
 
@@ -17,7 +17,6 @@ router.patch("/notifications/read-all", jwtAuth, markAllNotificationsReadControl
 router.patch("/notifications/:id/read", jwtAuth, markNotificationReadController);
 
 // === ACCOUNT PROFILE ===
-router.get("/profile", jwtAuth, getMyAccountController);
 router.patch("/profile", jwtAuth, updateMyAccountController);
 
 export default router;

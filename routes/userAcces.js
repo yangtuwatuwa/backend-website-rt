@@ -9,7 +9,7 @@ import { createWargaByResident, updateWargaDetailsController, getKepalaKeluargaC
 import { uploadSensitifDataController, downloadSensitifFileController, deleteSensitifDataController } from "../controllers/documentController.js"
 import { uploadSensitifMiddleware } from "../middlewares/multerConfig.js"
 
-import { getMyAccountController, updateMyAccountController } from "../controllers/accountProfileController.js"
+import { updateMyAccountController } from "../controllers/accountProfileController.js"
 
 const router = express.Router()
 
@@ -18,9 +18,7 @@ router.get("/getmyfamily/:id", jwtAuth, family)
 router.get("/kepala-keluarga", jwtAuth, getKepalaKeluargaController)
 router.patch("/password", jwtAuth, changePasswordController)
 
-// Route Profil / Akun Mandiri User (Lihat & Edit Username, Email, Password)
-router.get("/my-account", jwtAuth, getMyAccountController)
-router.get("/profile", jwtAuth, getMyAccountController)
+// Route edit akun mandiri. Data profil dibaca melalui GET /api/profil-saya.
 router.patch("/my-account", jwtAuth, updateMyAccountController)
 router.patch("/profile", jwtAuth, updateMyAccountController)
 
