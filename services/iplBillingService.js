@@ -37,6 +37,55 @@ import { createNotification, createBroadcastFamilyNotifications } from "./notifi
 let publishBillPeriodSavepointCounter = 0;
 let submitPaymentSavepointCounter = 0;
 let verifyPaymentSavepointCounter = 0;
+let recordCashPaymentSavepointCounter = 0;
+
+function normalizePositiveInteger(value) {
+    const normalized = Number(value);
+    return Number.isInteger(normalized) && normalized > 0 ? normalized : null;
+}
+
+function normalizeCashBillIds(billIds) {
+    if (!Array.isArray(billIds)) return [];
+
+    const normalized = billIds.map(normalizePositiveInteger);
+    if (normalized.some(id => id === null)) return [];
+    return [...new Set(normalized)];
+}
+
+async function writeCashPaymentAudit(connection, {
+    actorId,
+    actorRole,
+    actorUsername,
+    ipAddress,
+    userAgent,
+    familyId,
+    billIds,
+    paymentId,
+    totalAmount
+}) {
+    const details = JSON.stringify({
+        actor_id: actorId,
+        actor_role: actorRole || null,
+        family_id: familyId,
+        bill_ids: billIds,
+        payment_id: paymentId,
+        total_amount: totalAmount,
+        payment_method: "cash_to_bendahara",
+        timestamp: new Date().toISOString()
+    });
+
+    await connection.execute(
+        `INSERT INTO access_logs
+            (username, event_type, ip_address, user_agent, status, details)
+         VALUES (?, 'IPL_CASH_PAYMENT_RECORDED', ?, ?, 'success', ?)`,
+        [
+            actorUsername || `account:${actorId || "unknown"}`,
+            ipAddress || "-",
+            userAgent || "-",
+            details
+        ]
+    );
+}
 
 async function getResettableBillIdsForUpdate(billIds, connection) {
     const currentBills = await getBillsByIdsForUpdate(billIds, connection);
@@ -862,6 +911,163 @@ export async function getMyBillsService(userId, filters = {}, executor = pool) {
     } catch (err) {
         console.error("error getMyBillsService:", err);
         return { error: "Gagal mengambil tagihan keluarga: " + err.message };
+    }
+}
+
+/**
+ * Mengambil tagihan IPL unpaid untuk KK yang dipilih pengurus.
+ * Query tagihan tetap memakai source of truth getBillsByFamilyId.
+ */
+export async function getOutstandingBillsByFamilyService(familyId, executor = pool) {
+    const targetFamilyId = normalizePositiveInteger(familyId);
+    if (!targetFamilyId) {
+        return { error: "ID Kartu Keluarga (familyId) tidak valid!" };
+    }
+
+    try {
+        return await getBillsByFamilyId(targetFamilyId, { status: "unpaid" }, executor);
+    } catch (err) {
+        console.error("error getOutstandingBillsByFamilyService:", err);
+        return { error: "Gagal mengambil tagihan IPL yang belum lunas: " + err.message };
+    }
+}
+
+/**
+ * Pencatatan pembayaran IPL tunai yang diinisiasi pengurus.
+ *
+ * Nominal selalu dihitung dari bill yang dikunci di database. Transisi payment
+ * dan bill didelegasikan ke submitPaymentService agar aturan status pembayaran
+ * tetap memiliki satu source of truth. Audit ikut dalam transaksi yang sama.
+ */
+export async function recordCashPaymentService({
+    familyId,
+    billIds,
+    actorId,
+    actorRole = null,
+    actorUsername = null,
+    ipAddress = null,
+    userAgent = null
+}, executor = undefined) {
+    const targetFamilyId = normalizePositiveInteger(familyId);
+    if (!targetFamilyId) {
+        return { error: "ID Kartu Keluarga (familyId) tidak valid!", statusCode: 400 };
+    }
+
+    const targetBillIds = normalizeCashBillIds(billIds);
+    if (targetBillIds.length === 0 || targetBillIds.length !== billIds.length) {
+        return {
+            error: "Daftar tagihan (billIds) wajib berupa array ID unik yang valid!",
+            statusCode: 400
+        };
+    }
+
+    const targetActorId = normalizePositiveInteger(actorId);
+    if (!targetActorId) {
+        return { error: "Akun pengurus yang memproses pembayaran tidak valid!", statusCode: 400 };
+    }
+
+    const ownsTransaction = !executor;
+    const connection = executor || await pool.getConnection();
+    const savepointName = ownsTransaction
+        ? null
+        : `sp_record_ipl_cash_${++recordCashPaymentSavepointCounter}`;
+    let transactionStarted = false;
+    let savepointCreated = false;
+
+    try {
+        if (ownsTransaction) {
+            await connection.beginTransaction();
+            transactionStarted = true;
+        } else {
+            await connection.query(`SAVEPOINT ${savepointName}`);
+            savepointCreated = true;
+        }
+
+        // Lock untuk memperoleh nominal authoritative dan menjaga konsistensi
+        // sampai submitPaymentService menyelesaikan transisi status.
+        const bills = await getBillsByIdsForUpdate(targetBillIds, connection);
+        if (bills.length !== targetBillIds.length) {
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            } else if (savepointCreated) {
+                await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                savepointCreated = false;
+            }
+            return {
+                error: "Satu atau lebih tagihan yang dipilih tidak ditemukan di database!",
+                statusCode: 404
+            };
+        }
+
+        const totalAmount = bills.reduce((sum, bill) => sum + Number(bill.amount), 0);
+        const paymentResult = await submitPaymentService({
+            billIds: targetBillIds,
+            familyId: targetFamilyId,
+            amountStated: totalAmount,
+            channel: "cash_to_bendahara",
+            recordedBy: targetActorId
+        }, connection);
+
+        if (paymentResult.error) {
+            if (transactionStarted) {
+                await connection.rollback();
+                transactionStarted = false;
+            } else if (savepointCreated) {
+                await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+                savepointCreated = false;
+            }
+            return { ...paymentResult, statusCode: 409 };
+        }
+
+        await writeCashPaymentAudit(connection, {
+            actorId: targetActorId,
+            actorRole,
+            actorUsername,
+            ipAddress,
+            userAgent,
+            familyId: targetFamilyId,
+            billIds: targetBillIds,
+            paymentId: paymentResult.payment_id,
+            totalAmount
+        });
+
+        if (ownsTransaction) {
+            await connection.commit();
+            transactionStarted = false;
+        } else {
+            await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+            savepointCreated = false;
+        }
+
+        return {
+            ...paymentResult,
+            message: `Setoran tunai untuk ${targetBillIds.length} tagihan IPL berhasil dicatat (Lunas)`,
+            family_id: targetFamilyId,
+            payment_method: "cash_to_bendahara"
+        };
+    } catch (err) {
+        if (transactionStarted) {
+            try {
+                await connection.rollback();
+            } catch (rollbackErr) {
+                console.error("error rollback recordCashPaymentService:", rollbackErr);
+            }
+        } else if (savepointCreated) {
+            try {
+                await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+                await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+            } catch (rollbackErr) {
+                console.error("error rollback savepoint recordCashPaymentService:", rollbackErr);
+            }
+        }
+
+        console.error("error recordCashPaymentService:", err);
+        return { error: "Gagal mencatat setoran tunai IPL: " + err.message, statusCode: 500 };
+    } finally {
+        if (ownsTransaction) connection.release();
     }
 }
 

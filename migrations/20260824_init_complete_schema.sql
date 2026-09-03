@@ -1,5 +1,5 @@
 -- =================================================================================
--- MIGRATION: RESET & INIT COMPLETE DATABASE SCHEMA (25 TABEL LENGKAP)
+-- MIGRATION: RESET & INIT COMPLETE DATABASE SCHEMA (26 TABEL LENGKAP)
 -- Target: Setup Database RT dari Nol (Clean Reset & Recreate)
 -- =================================================================================
 
@@ -11,6 +11,7 @@ DROP TABLE IF EXISTS `payment_bill_links`;
 DROP TABLE IF EXISTS `payments`;
 DROP TABLE IF EXISTS `bills`;
 DROP TABLE IF EXISTS `bill_periods`;
+DROP TABLE IF EXISTS `kas_transaksi`;
 DROP TABLE IF EXISTS `kas_contributions`;
 DROP TABLE IF EXISTS `financial_ledger`;
 DROP TABLE IF EXISTS `financial_settings`;
@@ -35,7 +36,7 @@ DROP TABLE IF EXISTS `ipl_payment`;
 DROP TABLE IF EXISTS `kas_payment`;
 DROP TABLE IF EXISTS `payment`;
 
--- 2. CREATE 25 TABEL DENGAN SKEMA TERMUTAKHIR
+-- 2. CREATE 26 TABEL DENGAN SKEMA TERMUTAKHIR
 
 -- 1. Tabel Rumah (house)
 CREATE TABLE `house` (
@@ -396,7 +397,32 @@ CREATE TABLE `kas_contributions` (
     CONSTRAINT `fk_kas_verified_by` FOREIGN KEY (`verified_by`) REFERENCES `acount` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 25. Tabel Notifikasi In-App (notifications)
+-- 25. Tabel Buku Kas RT Manual (kas_transaksi)
+-- Saldo dan seluruh agregat dihitung dari transaksi aktif, tidak disimpan sebagai kolom.
+CREATE TABLE `kas_transaksi` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `tanggal` DATE NOT NULL,
+    `deskripsi` TEXT NOT NULL,
+    `kategori_kas` VARCHAR(100) NOT NULL,
+    `tipe_mutasi` ENUM('masuk', 'keluar') NOT NULL,
+    `nominal` DECIMAL(15, 2) UNSIGNED NOT NULL,
+    `created_by` INT NULL,
+    `updated_by` INT NULL,
+    `deleted_by` INT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL,
+    INDEX `idx_kas_transaksi_tanggal` (`tanggal`),
+    INDEX `idx_kas_transaksi_tipe` (`tipe_mutasi`),
+    INDEX `idx_kas_transaksi_kategori` (`kategori_kas`),
+    INDEX `idx_kas_transaksi_deleted_at` (`deleted_at`),
+    CONSTRAINT `fk_kas_transaksi_created_by` FOREIGN KEY (`created_by`) REFERENCES `acount` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `fk_kas_transaksi_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `acount` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `fk_kas_transaksi_deleted_by` FOREIGN KEY (`deleted_by`) REFERENCES `acount` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `chk_kas_transaksi_nominal_positif` CHECK (`nominal` > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 26. Tabel Notifikasi In-App (notifications)
 CREATE TABLE `notifications` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `account_id` INT NOT NULL,

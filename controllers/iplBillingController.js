@@ -8,6 +8,8 @@ import {
     setExemptService,
     getPeriodSummaryService,
     getMyBillsService,
+    getOutstandingBillsByFamilyService,
+    recordCashPaymentService,
     getBillDetailWithAuthService,
     getPendingPaymentsService,
     getPaymentAuditService
@@ -276,6 +278,54 @@ export async function getPaymentAuditController(req, res) {
         return responseSucces(200, list, "Audit trail pembayaran berhasil ditarik", res);
     } catch (err) {
         console.error("[Controller Error getPaymentAudit]:", err);
+        return res.status(500).json({ pesan: "Terjadi kesalahan pada server: " + err.message });
+    }
+}
+
+/**
+ * Ambil tagihan IPL unpaid untuk KK yang dipilih pengurus.
+ */
+export async function getOutstandingBillsByFamilyController(req, res) {
+    try {
+        const bills = await getOutstandingBillsByFamilyService(req.params.familyId);
+        if (bills.error) {
+            return res.status(400).json({ pesan: bills.error });
+        }
+
+        return responseSucces(200, bills, "Daftar tagihan IPL yang belum lunas berhasil diambil", res);
+    } catch (err) {
+        console.error("[Controller Error getOutstandingBillsByFamily]:", err);
+        return res.status(500).json({ pesan: "Terjadi kesalahan pada server: " + err.message });
+    }
+}
+
+/**
+ * Catat setoran tunai IPL yang diterima pengurus. Nominal dari body sengaja
+ * tidak diteruskan karena total dihitung dari billIds di database.
+ */
+export async function recordCashPaymentController(req, res) {
+    const familyId = req.body.familyId || req.body.family_id;
+    const billIds = req.body.billIds || req.body.bill_ids;
+
+    try {
+        const result = await recordCashPaymentService({
+            familyId,
+            billIds,
+            actorId: req.user.id,
+            actorRole: req.user.role,
+            actorUsername: req.user.username,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent")
+        });
+
+        if (result.error) {
+            return res.status(result.statusCode || 400).json({ pesan: result.error });
+        }
+
+        emitSyncEvent("finance");
+        return responseSucces(201, result, result.message, res);
+    } catch (err) {
+        console.error("[Controller Error recordCashPayment]:", err);
         return res.status(500).json({ pesan: "Terjadi kesalahan pada server: " + err.message });
     }
 }

@@ -101,6 +101,7 @@ const expectedTables = [
   "house",
   "karyawan",
   "kas_contributions",
+  "kas_transaksi",
   "letter",
   "notifications",
   "otp_codes",
@@ -161,6 +162,7 @@ try {
     ["acount", "is_verified"],
     ["letter", "is_archived"],
     ["financial_ledger", "receipt_file"],
+    ["kas_transaksi", "deleted_at"],
   ];
 
   for (const [tableName, columnName] of requiredColumns) {

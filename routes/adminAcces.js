@@ -21,6 +21,20 @@ import {
     getPendingKasContributionsController,
     getKasAuditController
 } from "../controllers/kasController.js"
+import {
+    catatPemasukanKasController,
+    catatPengeluaranKasController,
+    updateKasTransaksiController,
+    deleteKasTransaksiController,
+    listKasTransaksiController,
+    getKasSummaryController as getKasTransaksiSummaryController,
+    getKasMonthlyReportController,
+    getKasYearlyReportController,
+    getKasRecapController,
+    getKasSuggestedCategoriesController,
+    exportKasController,
+    printKasReportController
+} from "../controllers/kasTransaksiController.js"
 import { verifyInput, updateResidentSchema, announcementSchema, updateAnnouncementSchema } from "../middlewares/verivyGmail.js"
 import { createAnnouncementController, getAnnouncementsController, editAnnouncementController, removeAnnouncementController } from "../controllers/announcement.js"
 import { createAgendaController, getAgendasController, editAgendaController, removeAgendaController } from "../controllers/agenda.js"
@@ -146,7 +160,9 @@ import {
     setExemptController,
     getPendingPaymentsController as getPendingIplBillPaymentsController,
     verifyPaymentController as verifyIplBillPaymentController,
-    getPaymentAuditController
+    getPaymentAuditController,
+    getOutstandingBillsByFamilyController,
+    recordCashPaymentController
 } from "../controllers/iplBillingController.js"
 
 // Route Keuangan Umum Bendahara & RT
@@ -173,8 +189,26 @@ app.patch("/finance/bills/:id/exempt", checkRoles('rt', 'bendahara', 'superadmin
 app.get("/finance/ipl-payments/pending", checkRoles('bendahara', 'rt', 'superadmin', 'admin'), getPendingIplBillPaymentsController)
 app.patch("/finance/ipl-payments/:id/verify", checkRoles('bendahara', 'superadmin', 'admin'), verifyIplBillPaymentController)
 app.get("/finance/ipl-payments/audit", checkRoles('rt', 'bendahara', 'sekretaris', 'superadmin', 'admin'), getPaymentAuditController)
+app.get("/finance/families/:familyId/ipl-bills/outstanding", checkRoles('rt', 'sekretaris', 'bendahara', 'superadmin', 'admin'), getOutstandingBillsByFamilyController)
+app.post("/finance/ipl-payments/cash", checkRoles('rt', 'sekretaris', 'bendahara', 'superadmin', 'admin'), recordCashPaymentController)
 
 // Route Modul Iuran Kas RT (Verifikasi & Audit)
+// Buku Kas RT manual. Tidak terhubung otomatis dengan pembayaran IPL/iuran warga.
+const kasReadRoles = checkRoles('rt', 'sekretaris', 'bendahara', 'superadmin', 'admin')
+const kasWriteRoles = checkRoles('rt', 'sekretaris', 'bendahara', 'superadmin', 'admin')
+app.post("/finance/kas-transaksi/pemasukan", kasWriteRoles, catatPemasukanKasController)
+app.post("/finance/kas-transaksi/pengeluaran", kasWriteRoles, catatPengeluaranKasController)
+app.get("/finance/kas-transaksi", kasReadRoles, listKasTransaksiController)
+app.get("/finance/kas-transaksi/summary", kasReadRoles, getKasTransaksiSummaryController)
+app.get("/finance/kas-transaksi/kategori-saran", kasReadRoles, getKasSuggestedCategoriesController)
+app.get("/finance/kas-transaksi/laporan/bulanan", kasReadRoles, getKasMonthlyReportController)
+app.get("/finance/kas-transaksi/laporan/tahunan", kasReadRoles, getKasYearlyReportController)
+app.get("/finance/kas-transaksi/laporan/rekap", kasReadRoles, getKasRecapController)
+app.get("/finance/kas-transaksi/export", kasReadRoles, exportKasController)
+app.get("/finance/kas-transaksi/cetak", kasReadRoles, printKasReportController)
+app.patch("/finance/kas-transaksi/:id", kasWriteRoles, updateKasTransaksiController)
+app.delete("/finance/kas-transaksi/:id", kasWriteRoles, deleteKasTransaksiController)
+
 app.get("/finance/kas-contributions/pending", checkRoles('bendahara', 'rt', 'superadmin', 'admin'), getPendingKasContributionsController)
 app.patch("/finance/kas-contributions/:id/verify", checkRoles('bendahara', 'superadmin', 'admin'), verifyKasContributionController)
 app.get("/finance/kas-contributions/audit", checkRoles('rt', 'bendahara', 'sekretaris', 'superadmin', 'admin'), getKasAuditController)

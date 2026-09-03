@@ -17,6 +17,7 @@
     "migrate:family": "node migrations/20260819_migrate_to_family_scope.js",
     "migrate:notifications": "node migrations/20260819_create_notifications_table.js",
     "migrate:archive-media": "node migrations/20260831_create_archive_media.js",
+    "migrate:kas-transaksi": "node migrations/20260902_create_kas_transaksi.js",
     "migrate": "node migrations/20260819_migrate_to_family_scope.js"
   },
   "dependencies": {
