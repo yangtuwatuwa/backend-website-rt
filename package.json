@@ -18,6 +18,7 @@
     "migrate:notifications": "node migrations/20260819_create_notifications_table.js",
     "migrate:archive-media": "node migrations/20260831_create_archive_media.js",
     "migrate:kas-transaksi": "node migrations/20260902_create_kas_transaksi.js",
+    "migrate:kas-tutup-buku": "node migrations/20260903_create_kas_periode_tutup_buku.js",
     "migrate": "node migrations/20260819_migrate_to_family_scope.js"
   },
   "dependencies": {

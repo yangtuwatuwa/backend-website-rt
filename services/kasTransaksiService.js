@@ -2,6 +2,7 @@ import pool from "../config/sqlconfig.js";
 import {
     countKasTransaksiRows,
     findKasTransaksiById,
+    findFirstKasTransactionDate,
     getKasCategoryRollup,
     getKasMonthlyRollup,
     insertKasTransaksi,
@@ -10,8 +11,12 @@ import {
     summarizeKasTransaksiRows,
     updateKasTransaksiRow,
 } from "../models/kasTransaksiModel.js";
+import {
+    findKasClosingById, findLatestKasClosing, insertKasClosing, listKasClosings, lockKasBuku,
+} from "../models/kasPeriodeTutupBukuModel.js";
 
 let savepointCounter = 0;
+export const KAS_CLOSING_ROLES = Object.freeze(["bendahara", "rt", "superadmin"]);
 
 export const SUGGESTED_KAS_CATEGORIES = Object.freeze([
     "keamanan",
@@ -51,7 +56,7 @@ function normalizeDate(value, field = "tanggal") {
     const month = Number(match[2]);
     const day = Number(match[3]);
     const parsed = new Date(Date.UTC(year, month - 1, day));
-    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() + 1 !== month || parsed.getUTCDate() !== day) {
+    if (year < 1000 || parsed.getUTCFullYear() !== year || parsed.getUTCMonth() + 1 !== month || parsed.getUTCDate() !== day) {
         throw new KasTransaksiError(400, "INVALID_DATE", `${field} bukan tanggal kalender yang valid.`);
     }
     return text;
@@ -171,6 +176,7 @@ function normalizeSummary(row) {
         jumlah_transaksi: Number(row.jumlah_transaksi),
         total_pemasukan: Number(row.total_pemasukan),
         total_pengeluaran: Number(row.total_pengeluaran),
+        saldo_awal: Number(row.saldo_awal ?? 0),
         saldo_akhir: Number(row.saldo_akhir),
     };
 }
@@ -239,6 +245,8 @@ export async function createKasTransaksiService(input, actor, executor = undefin
     const data = normalizeCreateInput(input, forcedType);
     const cleanActor = normalizeActor(actor);
     return runMutation("kas_create", executor, async (connection) => {
+        await lockKasBuku(connection);
+        assertOpenKasDate(data.tanggal, await findLatestKasClosing(connection, { forUpdate: true }));
         const result = await insertKasTransaksi({ ...data, actorId: cleanActor.actorId }, connection);
         const created = await findKasTransaksiById(result.insertId, connection);
         await writeAudit(connection, "KAS_TRANSAKSI_CREATE", cleanActor, result.insertId, null, normalizeRow(created));
@@ -259,8 +267,12 @@ export async function updateKasTransaksiService(idValue, input, actor, executor 
     const data = normalizeUpdateInput(input);
     const cleanActor = normalizeActor(actor);
     return runMutation("kas_update", executor, async (connection) => {
+        await lockKasBuku(connection);
+        const closing = await findLatestKasClosing(connection, { forUpdate: true });
         const before = await findKasTransaksiById(id, connection, { forUpdate: true });
         if (!before) throw new KasTransaksiError(404, "KAS_NOT_FOUND", "Transaksi kas tidak ditemukan atau sudah dihapus.");
+        assertOpenKasDate(before.tanggal, closing);
+        if (data.tanggal) assertOpenKasDate(data.tanggal, closing);
         const result = await updateKasTransaksiRow(id, { ...data, actorId: cleanActor.actorId }, connection);
         if (result.affectedRows !== 1) throw new KasTransaksiError(409, "KAS_UPDATE_RACE", "Transaksi berubah saat diperbarui; silakan coba lagi.");
         const updated = await findKasTransaksiById(id, connection);
@@ -273,8 +285,11 @@ export async function deleteKasTransaksiService(idValue, actor, executor = undef
     const id = assertPositiveId(idValue);
     const cleanActor = normalizeActor(actor);
     return runMutation("kas_delete", executor, async (connection) => {
+        await lockKasBuku(connection);
+        const closing = await findLatestKasClosing(connection, { forUpdate: true });
         const before = await findKasTransaksiById(id, connection, { forUpdate: true });
         if (!before) throw new KasTransaksiError(404, "KAS_NOT_FOUND", "Transaksi kas tidak ditemukan atau sudah dihapus.");
+        assertOpenKasDate(before.tanggal, closing);
         const result = await softDeleteKasTransaksiRow(id, cleanActor.actorId, connection);
         if (result.affectedRows !== 1) throw new KasTransaksiError(409, "KAS_DELETE_RACE", "Transaksi berubah saat dihapus; silakan coba lagi.");
         await writeAudit(connection, "KAS_TRANSAKSI_DELETE", cleanActor, id, normalizeRow(before), null);
@@ -308,7 +323,26 @@ export async function getKasTransactionsForExportService(input = {}, executor = 
 
 export async function getKasSummaryService(input = {}, executor = pool) {
     const filters = normalizeKasFilters(input, { paginate: false });
-    return normalizeSummary(await summarizeKasTransaksiRows(filters, executor));
+    return normalizeSummary(await summarizeKasTransaksiRows(filters, executor, {
+        currentPeriod: !filters.tanggalMulai && !filters.tanggalSelesai,
+        includeOpeningBalance: true,
+        movementsOnly: hasMovementFilters(filters),
+    }));
+}
+
+function hasMovementFilters(filters) {
+    return Boolean(filters.keyword || filters.kategoriKas || filters.tipeMutasi);
+}
+
+async function summarizeReport(filters, executor) {
+    return summarizeKasTransaksiRows(filters, executor, {
+        includeOpeningBalance: true, movementsOnly: hasMovementFilters(filters),
+    });
+}
+
+// Exports cover the requested transaction set, including all history without dates.
+export async function getKasReportSummaryService(input = {}, executor = pool) {
+    return normalizeSummary(await summarizeReport(normalizeKasFilters(input, { paginate: false }), executor));
 }
 
 function assertYear(value) {
@@ -333,7 +367,7 @@ export async function getKasMonthlyReportService(input = {}, executor = pool) {
     }, { paginate: false });
     const [transactions, summary, categories] = await Promise.all([
         listKasTransaksiRows(filters, executor, { paginate: false }),
-        summarizeKasTransaksiRows(filters, executor),
+        summarizeReport(filters, executor),
         getKasCategoryRollup(filters, executor),
     ]);
     return {
@@ -349,17 +383,22 @@ export async function getKasYearlyReportService(input = {}, executor = pool) {
     const filters = normalizeKasFilters(input, { paginate: false });
     const [rollup, summary] = await Promise.all([
         getKasMonthlyRollup(year, filters, executor),
-        summarizeKasTransaksiRows({ ...filters, tanggalMulai: `${year}-01-01`, tanggalSelesai: `${year}-12-31` }, executor),
+        summarizeReport({ ...filters, tanggalMulai: `${year}-01-01`, tanggalSelesai: `${year}-12-31` }, executor),
     ]);
     const byMonth = new Map(rollup.map((row) => [Number(row.bulan), row]));
+    let openingCents = moneyToCents(summary.saldo_awal);
     const months = Array.from({ length: 12 }, (_, index) => {
         const row = byMonth.get(index + 1) ?? {};
+        const saldoAwal = Number(openingCents) / 100;
+        openingCents += moneyToCents(row.saldo ?? 0);
         return {
             bulan: index + 1,
             jumlah_transaksi: Number(row.jumlah_transaksi ?? 0),
             total_pemasukan: Number(row.total_pemasukan ?? 0),
             total_pengeluaran: Number(row.total_pengeluaran ?? 0),
             saldo: Number(row.saldo ?? 0),
+            saldo_awal: saldoAwal,
+            saldo_akhir: Number(openingCents) / 100,
         };
     });
     return { tahun: year, summary: normalizeSummary(summary), months };
@@ -388,7 +427,7 @@ export async function getKasRecapService(input = {}, executor = pool) {
     const filters = normalizeKasFilters(periodInput, { paginate: false });
     const [rows, summary] = await Promise.all([
         getKasCategoryRollup(filters, executor),
-        summarizeKasTransaksiRows(filters, executor),
+        summarizeReport(filters, executor),
     ]);
     return {
         summary: normalizeSummary(summary),
@@ -398,4 +437,100 @@ export async function getKasRecapService(input = {}, executor = pool) {
 
 export function getSuggestedKasCategoriesService() {
     return [...SUGGESTED_KAS_CATEGORIES];
+}
+
+function moneyToCents(value) {
+    const text = String(value ?? 0);
+    const negative = text.startsWith("-");
+    const [whole, fraction = ""] = text.replace(/^-/, "").split(".");
+    const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0").slice(0, 2));
+    return negative ? -cents : cents;
+}
+
+function dateText(value) {
+    if (!(value instanceof Date)) return String(value).slice(0, 10);
+    // mysql2 DATE uses the connection's local timezone, not UTC midnight.
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function nextDate(value) {
+    const date = new Date(`${value}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + 1);
+    return date.toISOString().slice(0, 10);
+}
+
+function assertOpenKasDate(value, closing) {
+    if (closing && dateText(value) <= closing.periode_selesai) {
+        throw new KasTransaksiError(409, "KAS_PERIOD_CLOSED", "Tanggal transaksi berada dalam periode yang sudah ditutup.", {
+            tutup_buku_id: closing.id, tanggal_cutoff: closing.periode_selesai,
+        });
+    }
+}
+
+function normalizeClosing(row) {
+    return { ...row, ...normalizeSummary(row) };
+}
+
+export async function closeKasPeriodService(input = {}, actor, executor = undefined) {
+    const cleanActor = normalizeActor(actor);
+    if (!KAS_CLOSING_ROLES.includes(cleanActor.actorRole)) {
+        throw new KasTransaksiError(403, "KAS_CLOSING_FORBIDDEN", "Tutup buku hanya dapat dilakukan bendahara, RT, atau superadmin.");
+    }
+    const today = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const cutoff = optionalDate(input.periode_selesai ?? input.tanggal_cutoff, "periode_selesai") ?? today;
+    const requestedStart = optionalDate(input.periode_mulai, "periode_mulai");
+    if (cutoff > today) {
+        throw new KasTransaksiError(400, "KAS_FUTURE_CLOSING", "Periode tutup buku tidak boleh berakhir di masa depan.");
+    }
+    if (requestedStart && requestedStart > cutoff) {
+        throw new KasTransaksiError(400, "INVALID_DATE_RANGE", "periode_mulai tidak boleh setelah periode_selesai.");
+    }
+    const notes = String(input.keterangan ?? "").trim();
+    if (notes.length > 2000) {
+        throw new KasTransaksiError(400, "FIELD_TOO_LONG", "keterangan maksimal 2000 karakter.");
+    }
+
+    return runMutation("kas_close", executor, async (connection) => {
+        await lockKasBuku(connection);
+        const previous = await findLatestKasClosing(connection, { forUpdate: true });
+        if (previous && (cutoff <= previous.periode_selesai || (requestedStart && requestedStart <= previous.periode_selesai))) {
+            throw new KasTransaksiError(409, "KAS_CLOSING_OVERLAP", "Periode bertumpang tindih dengan periode yang sudah ditutup.");
+        }
+        const start = previous ? nextDate(previous.periode_selesai)
+            : await findFirstKasTransactionDate(cutoff, connection) ?? cutoff;
+        if (requestedStart && requestedStart !== start) {
+            throw new KasTransaksiError(400, "KAS_CLOSING_START_MISMATCH", "periode_mulai harus mengikuti awal periode yang dihitung server.", { periode_mulai: start });
+        }
+        const totals = await summarizeKasTransaksiRows({ tanggalMulai: start, tanggalSelesai: cutoff }, connection, {
+            saldoAwal: previous?.saldo_akhir ?? 0, forUpdate: true,
+        });
+        const result = await insertKasClosing({
+            ...totals, periode_mulai: start, periode_selesai: cutoff,
+            actorId: cleanActor.actorId, actorRole: cleanActor.actorRole, keterangan: notes || null,
+        }, connection);
+        const created = await findKasClosingById(result.insertId, connection);
+        // Snapshot and audit commit together. Keep exact DECIMAL strings in audit.
+        await connection.execute(
+            `INSERT INTO access_logs (username, event_type, ip_address, user_agent, status, details)
+             VALUES (?, 'KAS_PERIOD_CLOSED', ?, ?, 'success', ?)`,
+            [cleanActor.actorUsername, cleanActor.ipAddress, cleanActor.userAgent, JSON.stringify({
+                actor_id: cleanActor.actorId, actor_role: cleanActor.actorRole,
+                kas_periode_tutup_buku_id: created.id, previous_closing_id: previous?.id ?? null,
+                periode_mulai: start, periode_selesai: cutoff, ...totals,
+                keterangan: created.keterangan, timestamp: created.ditutup_pada, after: created,
+            })],
+        );
+        return normalizeClosing(created);
+    });
+}
+
+export async function getKasClosingHistoryService(input = {}, executor = pool) {
+    const { page, limit, offset } = normalizeKasFilters(input);
+    const { rows, total } = await listKasClosings({ limit, offset }, executor);
+    return {
+        data: rows.map(normalizeClosing),
+        pagination: { page, limit, total, total_pages: Math.ceil(total / limit) },
+    };
 }

@@ -170,7 +170,7 @@ describe("Kas RT manual transactions", () => {
         expect(deleted.deletedId).toBe(income.id);
         expect((await findTransaction(income.id)).deleted_at).not.toBeNull();
         const summary = await getKasSummaryService({}, globalThis.testDb);
-        expect(summary).toEqual({ jumlah_transaksi: 1, total_pemasukan: 0, total_pengeluaran: 50000, saldo_akhir: -50000 });
+        expect(summary).toEqual({ jumlah_transaksi: 1, total_pemasukan: 0, total_pengeluaran: 50000, saldo_awal: 0, saldo_akhir: -50000 });
         const list = await getKasTransaksiListService({}, globalThis.testDb);
         expect(list.data.map((row) => row.id)).not.toContain(income.id);
         expect((await findAudits(income.id)).at(-1).event_type).toBe("KAS_TRANSAKSI_DELETE");
@@ -199,7 +199,7 @@ describe("Kas RT manual transactions", () => {
         await catatPengeluaranKasService(transactionInput({ tanggal: "2026-03-05", nominal: 125000 }), actorContext(), globalThis.testDb);
         await catatPemasukanKasService(transactionInput({ tanggal: "2025-03-01", nominal: 999999 }), actorContext(), globalThis.testDb);
         const summary = await getKasSummaryService({ date_from: "2026-03-01", date_to: "2026-03-31" }, globalThis.testDb);
-        expect(summary).toEqual({ jumlah_transaksi: 2, total_pemasukan: 300000, total_pengeluaran: 125000, saldo_akhir: 175000 });
+        expect(summary).toEqual({ jumlah_transaksi: 2, total_pemasukan: 300000, total_pengeluaran: 125000, saldo_awal: 999999, saldo_akhir: 1174999 });
     });
 
     it("membuat laporan bulanan, tahunan 12 bulan, dan rekap kategori", async () => {

@@ -23,6 +23,8 @@ import {
 } from "../controllers/kasController.js"
 import {
     catatPemasukanKasController,
+    closeKasPeriodController,
+    getKasClosingHistoryController,
     catatPengeluaranKasController,
     updateKasTransaksiController,
     deleteKasTransaksiController,
@@ -35,6 +37,7 @@ import {
     exportKasController,
     printKasReportController
 } from "../controllers/kasTransaksiController.js"
+import { KAS_CLOSING_ROLES } from "../services/kasTransaksiService.js"
 import { verifyInput, updateResidentSchema, announcementSchema, updateAnnouncementSchema } from "../middlewares/verivyGmail.js"
 import { createAnnouncementController, getAnnouncementsController, editAnnouncementController, removeAnnouncementController } from "../controllers/announcement.js"
 import { createAgendaController, getAgendasController, editAgendaController, removeAgendaController } from "../controllers/agenda.js"
@@ -196,6 +199,8 @@ app.post("/finance/ipl-payments/cash", checkRoles('rt', 'sekretaris', 'bendahara
 // Buku Kas RT manual. Tidak terhubung otomatis dengan pembayaran IPL/iuran warga.
 const kasReadRoles = checkRoles('rt', 'sekretaris', 'bendahara', 'superadmin', 'admin')
 const kasWriteRoles = checkRoles('rt', 'sekretaris', 'bendahara', 'superadmin', 'admin')
+app.post("/finance/kas-transaksi/tutup-buku", checkRoles(...KAS_CLOSING_ROLES), closeKasPeriodController)
+app.get("/finance/kas-transaksi/tutup-buku", kasReadRoles, getKasClosingHistoryController)
 app.post("/finance/kas-transaksi/pemasukan", kasWriteRoles, catatPemasukanKasController)
 app.post("/finance/kas-transaksi/pengeluaran", kasWriteRoles, catatPengeluaranKasController)
 app.get("/finance/kas-transaksi", kasReadRoles, listKasTransaksiController)

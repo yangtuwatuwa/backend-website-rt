@@ -102,6 +102,8 @@ const expectedTables = [
   "karyawan",
   "kas_contributions",
   "kas_transaksi",
+  "kas_periode_tutup_buku",
+  "kas_buku_lock",
   "letter",
   "notifications",
   "otp_codes",
@@ -163,6 +165,7 @@ try {
     ["letter", "is_archived"],
     ["financial_ledger", "receipt_file"],
     ["kas_transaksi", "deleted_at"],
+    ["kas_periode_tutup_buku", "saldo_awal"],
   ];
 
   for (const [tableName, columnName] of requiredColumns) {

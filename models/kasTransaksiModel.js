@@ -134,17 +134,47 @@ export async function countKasTransaksiRows(filters = {}, executor = db) {
     return Number(rows[0].total);
 }
 
-export async function summarizeKasTransaksiRows(filters = {}, executor = db) {
+export async function summarizeKasTransaksiRows(filters = {}, executor = db, options = {}) {
     const where = buildWhere(filters);
+    // All summaries share the same movement calculation. A single statement keeps
+    // the opening balance and movements in one consistent database read.
+    let openingSql = "SELECT CAST(? AS DECIMAL(20, 2)) AS saldo_awal";
+    let openingParams = [options.saldoAwal ?? 0];
+    let boundarySql = "";
+    if (options.currentPeriod) {
+        openingSql = `SELECT COALESCE(kp.saldo_akhir, 0) AS saldo_awal, kp.periode_selesai
+            FROM (SELECT 1) seed LEFT JOIN kas_periode_tutup_buku kp ON kp.id = (
+                SELECT id FROM kas_periode_tutup_buku WHERE deleted_at IS NULL
+                ORDER BY periode_selesai DESC, id DESC LIMIT 1)`;
+        openingParams = [];
+        boundarySql = " AND (opening.periode_selesai IS NULL OR kt.tanggal > opening.periode_selesai)";
+    } else if (options.includeOpeningBalance && filters.tanggalMulai) {
+        const prior = buildWhere({ ...filters, tanggalMulai: null, tanggalSelesai: null }, "prior");
+        openingSql = `SELECT COALESCE(SUM(CASE WHEN prior.tipe_mutasi = 'masuk'
+            THEN prior.nominal ELSE -prior.nominal END), 0) AS saldo_awal
+            FROM kas_transaksi prior WHERE ${prior.sql} AND prior.tanggal < ?`;
+        openingParams = [...prior.params, filters.tanggalMulai];
+    }
+    // Category/search/type filters represent movement subtotals, not total cash.
+    const openingExpression = options.movementsOnly ? "0" : "COALESCE(MAX(opening.saldo_awal), 0)";
     const [rows] = await executor.execute(
-        `SELECT COUNT(*) AS jumlah_transaksi,
+        `SELECT COUNT(kt.id) AS jumlah_transaksi,
+            ${openingExpression} AS saldo_awal,
             COALESCE(SUM(CASE WHEN kt.tipe_mutasi = 'masuk' THEN kt.nominal ELSE 0 END), 0) AS total_pemasukan,
             COALESCE(SUM(CASE WHEN kt.tipe_mutasi = 'keluar' THEN kt.nominal ELSE 0 END), 0) AS total_pengeluaran,
-            COALESCE(SUM(CASE WHEN kt.tipe_mutasi = 'masuk' THEN kt.nominal ELSE -kt.nominal END), 0) AS saldo_akhir
-         FROM kas_transaksi kt WHERE ${where.sql}`,
-        where.params,
+            ${openingExpression} + COALESCE(SUM(CASE WHEN kt.tipe_mutasi = 'masuk' THEN kt.nominal ELSE -kt.nominal END), 0) AS saldo_akhir
+         FROM (${openingSql}) opening LEFT JOIN kas_transaksi kt ON ${where.sql}${boundarySql}${options.forUpdate ? " FOR UPDATE" : ""}`,
+        [...openingParams, ...where.params],
     );
     return rows[0];
+}
+
+export async function findFirstKasTransactionDate(cutoff, executor = db) {
+    const [rows] = await executor.execute(
+        `SELECT DATE_FORMAT(tanggal, '%Y-%m-%d') AS tanggal FROM kas_transaksi
+         WHERE deleted_at IS NULL AND tanggal <= ? ORDER BY tanggal, id LIMIT 1 FOR UPDATE`, [cutoff],
+    );
+    return rows[0]?.tanggal ?? null;
 }
 
 export async function getKasMonthlyRollup(year, filters = {}, executor = db) {

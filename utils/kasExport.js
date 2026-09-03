@@ -26,6 +26,7 @@ export async function buildKasExcelBuffer({ transactions, summary, title = "Lapo
     sheet.getCell("A1").font = { bold: true, size: 16 };
     sheet.getCell("A1").alignment = { horizontal: "center" };
     sheet.addRow([]);
+    sheet.addRow(["Saldo awal", Number(summary.saldo_awal ?? 0)]);
     sheet.addRow(["Total pemasukan", Number(summary.total_pemasukan)]);
     sheet.addRow(["Total pengeluaran", Number(summary.total_pengeluaran)]);
     sheet.addRow(["Saldo akhir", Number(summary.saldo_akhir)]);
@@ -75,6 +76,7 @@ export function buildKasPdfBuffer({ transactions, summary, title = "Laporan Kas 
         );
         doc.moveDown();
         doc.font("Helvetica-Bold").fontSize(10).text(
+            `Saldo awal: ${rupiah.format(summary.saldo_awal ?? 0)}    ` +
             `Pemasukan: ${rupiah.format(summary.total_pemasukan)}    ` +
             `Pengeluaran: ${rupiah.format(summary.total_pengeluaran)}    ` +
             `Saldo: ${rupiah.format(summary.saldo_akhir)}`,

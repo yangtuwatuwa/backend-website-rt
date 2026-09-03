@@ -1,5 +1,8 @@
 import {
     KasTransaksiError,
+    closeKasPeriodService,
+    getKasClosingHistoryService,
+    getKasReportSummaryService,
     catatPemasukanKasService,
     catatPengeluaranKasService,
     deleteKasTransaksiService,
@@ -83,6 +86,19 @@ export async function getKasSummaryController(req, res) {
     catch (error) { return handleError(res, error); }
 }
 
+export async function closeKasPeriodController(req, res) {
+    try {
+        const result = await closeKasPeriodService(req.body, actorFromRequest(req));
+        emitSyncEvent("finance");
+        return success(res, 201, result, "Periode Kas RT berhasil ditutup.");
+    } catch (error) { return handleError(res, error); }
+}
+
+export async function getKasClosingHistoryController(req, res) {
+    try { return success(res, 200, await getKasClosingHistoryService(req.query), "Riwayat tutup buku berhasil diambil."); }
+    catch (error) { return handleError(res, error); }
+}
+
 export async function getKasMonthlyReportController(req, res) {
     try { return success(res, 200, await getKasMonthlyReportService(req.query), "Laporan bulanan Kas RT berhasil dibuat."); }
     catch (error) { return handleError(res, error); }
@@ -109,7 +125,7 @@ async function exportData(req, res, disposition, forcedFormat = undefined) {
     }
     const [transactions, summary] = await Promise.all([
         getKasTransactionsForExportService(req.query),
-        getKasSummaryService(req.query),
+        getKasReportSummaryService(req.query),
     ]);
     const stamp = new Date().toISOString().slice(0, 10);
     if (format === "xlsx" || format === "excel") {
