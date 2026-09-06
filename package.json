@@ -19,6 +19,9 @@
     "migrate:archive-media": "node migrations/20260831_create_archive_media.js",
     "migrate:kas-transaksi": "node migrations/20260902_create_kas_transaksi.js",
     "migrate:kas-tutup-buku": "node migrations/20260903_create_kas_periode_tutup_buku.js",
+    "migrate:surat-pengajuan": "node migrations/20260904_create_surat_pengajuan.js",
+    "migrate:notulen-rapat": "node migrations/20260904_create_notulen_rapat.js",
+    "migrate:surat-keperluan": "node migrations/20260904_seed_surat_kategori_keperluan.js",
     "migrate": "node migrations/20260819_migrate_to_family_scope.js"
   },
   "dependencies": {

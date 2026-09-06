@@ -1,7 +1,7 @@
 import pool from "../config/sqlconfig.js";
 
 /**
- * Migration: Setup Inisialisasi Database Lengkap dari Nol (Reset & Recreate 25 Tabel)
+ * Migration: Setup Inisialisasi Database Lengkap dari Nol (Reset & Recreate 29 Tabel)
  * 
  * PERINGATAN:
  * Script ini menjalankan DROP TABLE IF EXISTS sebelum CREATE TABLE.
@@ -9,7 +9,7 @@ import pool from "../config/sqlconfig.js";
  */
 export async function up() {
     console.log("===================================================================");
-    console.log("🚀 MEMULAI RESET & INISIALISASI SKEMA DATABASE BARU (25 TABEL)");
+    console.log("🚀 MEMULAI RESET & INISIALISASI SKEMA DATABASE BARU (29 TABEL)");
     console.log("===================================================================\n");
 
     const connection = await pool.getConnection();
@@ -47,7 +47,9 @@ export async function up() {
             "karyawan",
             "agenda",
             "announcement",
+            "notulen_rapat",
             "letter",
+            "surat_kategori",
             "report",
             "document",
             "acount",
@@ -69,7 +71,7 @@ export async function up() {
         // -----------------------------------------------------------------
         // 3. Buat Ulang Seluruh 25 Tabel dengan Skema Terkini
         // -----------------------------------------------------------------
-        console.log("\n📦 3. Membangun 25 tabel dengan skema termutakhir...\n");
+        console.log("\n📦 3. Membangun 29 tabel dengan skema termutakhir...\n");
 
         // 1. house
         console.log("   [1/25] Membuat tabel 'house'...");
@@ -187,21 +189,55 @@ export async function up() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
+        await connection.execute(`
+            CREATE TABLE surat_kategori (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                nama_kategori VARCHAR(150) NOT NULL UNIQUE,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                sort_order INT NOT NULL DEFAULT 999,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        await connection.execute(`
+            INSERT INTO surat_kategori (nama_kategori, is_active, sort_order) VALUES
+                ('Membuat Surat Keterangan Domisili', 1, 1),
+                ('Membuat Surat Pengantar Nikah / Rujukan Kelurahan', 1, 2),
+                ('Membuat Surat Keterangan Tidak Mampu (SKTM)', 1, 3),
+                ('Membuat surat Izin Keramaian', 1, 4),
+                ('Lain-Lain', 1, 5)
+        `);
+
         // 7. letter
         console.log("   [7/25] Membuat tabel 'letter'...");
         await connection.execute(`
             CREATE TABLE letter (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 family_id INT NOT NULL,
+                kategori_id INT NOT NULL,
                 keperluan TEXT NOT NULL,
-                jenis VARCHAR(100) NOT NULL,
                 status ENUM('pending', 'disetujui', 'ditolak') NOT NULL DEFAULT 'pending',
                 is_archived TINYINT(1) NOT NULL DEFAULT 0,
+                nama_lengkap VARCHAR(150) NULL,
+                jenis_kelamin VARCHAR(20) NULL,
+                tempat_lahir VARCHAR(100) NULL,
+                tanggal_lahir DATE NULL,
+                no_ktp VARCHAR(20) NULL,
+                alamat TEXT NULL,
+                agama VARCHAR(50) NULL,
+                pekerjaan VARCHAR(100) NULL,
+                kewarganegaraan VARCHAR(50) NULL,
+                approved_by INT NULL,
+                approved_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_letter_family_id (family_id),
+                INDEX idx_letter_kategori_id (kategori_id),
                 INDEX idx_letter_status (status),
-                CONSTRAINT fk_letter_family FOREIGN KEY (family_id) REFERENCES family (id) ON DELETE CASCADE
+                INDEX idx_letter_created_at (created_at),
+                CONSTRAINT fk_letter_family FOREIGN KEY (family_id) REFERENCES family (id) ON DELETE CASCADE,
+                CONSTRAINT fk_letter_kategori FOREIGN KEY (kategori_id) REFERENCES surat_kategori (id),
+                CONSTRAINT fk_letter_approved_by FOREIGN KEY (approved_by) REFERENCES acount (id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
@@ -214,6 +250,17 @@ export async function up() {
                 isi TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        await connection.execute(`
+            CREATE TABLE notulen_rapat (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                tanggal_rapat DATE NOT NULL,
+                topik VARCHAR(200) NOT NULL,
+                hasil_keputusan VARCHAR(200) NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 

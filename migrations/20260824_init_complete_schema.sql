@@ -1,5 +1,5 @@
 -- =================================================================================
--- MIGRATION: RESET & INIT COMPLETE DATABASE SCHEMA (28 TABEL LENGKAP)
+-- MIGRATION: RESET & INIT COMPLETE DATABASE SCHEMA (29 TABEL LENGKAP)
 -- Target: Setup Database RT dari Nol (Clean Reset & Recreate)
 -- =================================================================================
 
@@ -27,7 +27,9 @@ DROP TABLE IF EXISTS `vote_karyawan`;
 DROP TABLE IF EXISTS `karyawan`;
 DROP TABLE IF EXISTS `agenda`;
 DROP TABLE IF EXISTS `announcement`;
+DROP TABLE IF EXISTS `notulen_rapat`;
 DROP TABLE IF EXISTS `letter`;
+DROP TABLE IF EXISTS `surat_kategori`;
 DROP TABLE IF EXISTS `report`;
 DROP TABLE IF EXISTS `document`;
 DROP TABLE IF EXISTS `acount`;
@@ -38,7 +40,7 @@ DROP TABLE IF EXISTS `ipl_payment`;
 DROP TABLE IF EXISTS `kas_payment`;
 DROP TABLE IF EXISTS `payment`;
 
--- 2. CREATE 28 TABEL DENGAN SKEMA TERMUTAKHIR
+-- 2. CREATE 29 TABEL DENGAN SKEMA TERMUTAKHIR
 
 -- 1. Tabel Rumah (house)
 CREATE TABLE `house` (
@@ -136,19 +138,49 @@ CREATE TABLE `report` (
     CONSTRAINT `fk_report_family` FOREIGN KEY (`family_id`) REFERENCES `family` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 7. Tabel Pengajuan Surat (letter)
+-- 7. Referensi kategori dan tabel pengajuan surat
+CREATE TABLE `surat_kategori` (
+    `id` INT PRIMARY KEY AUTO_INCREMENT,
+    `nama_kategori` VARCHAR(150) NOT NULL UNIQUE,
+    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    `sort_order` INT NOT NULL DEFAULT 999,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO `surat_kategori` (`nama_kategori`, `is_active`, `sort_order`) VALUES
+    ('Membuat Surat Keterangan Domisili', 1, 1),
+    ('Membuat Surat Pengantar Nikah / Rujukan Kelurahan', 1, 2),
+    ('Membuat Surat Keterangan Tidak Mampu (SKTM)', 1, 3),
+    ('Membuat surat Izin Keramaian', 1, 4),
+    ('Lain-Lain', 1, 5);
+
 CREATE TABLE `letter` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `family_id` INT NOT NULL,
+    `kategori_id` INT NOT NULL,
     `keperluan` TEXT NOT NULL,
-    `jenis` VARCHAR(100) NOT NULL,
     `status` ENUM('pending', 'disetujui', 'ditolak') NOT NULL DEFAULT 'pending',
     `is_archived` TINYINT(1) NOT NULL DEFAULT 0,
+    `nama_lengkap` VARCHAR(150) NULL,
+    `jenis_kelamin` VARCHAR(20) NULL,
+    `tempat_lahir` VARCHAR(100) NULL,
+    `tanggal_lahir` DATE NULL,
+    `no_ktp` VARCHAR(20) NULL,
+    `alamat` TEXT NULL,
+    `agama` VARCHAR(50) NULL,
+    `pekerjaan` VARCHAR(100) NULL,
+    `kewarganegaraan` VARCHAR(50) NULL,
+    `approved_by` INT NULL,
+    `approved_at` DATETIME NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX `idx_letter_family_id` (`family_id`),
+    INDEX `idx_letter_kategori_id` (`kategori_id`),
     INDEX `idx_letter_status` (`status`),
-    CONSTRAINT `fk_letter_family` FOREIGN KEY (`family_id`) REFERENCES `family` (`id`) ON DELETE CASCADE
+    INDEX `idx_letter_created_at` (`created_at`),
+    CONSTRAINT `fk_letter_family` FOREIGN KEY (`family_id`) REFERENCES `family` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_letter_kategori` FOREIGN KEY (`kategori_id`) REFERENCES `surat_kategori` (`id`),
+    CONSTRAINT `fk_letter_approved_by` FOREIGN KEY (`approved_by`) REFERENCES `acount` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 8. Tabel Pengumuman (announcement)
@@ -158,6 +190,15 @@ CREATE TABLE `announcement` (
     `isi` TEXT NOT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `notulen_rapat` (
+    `id` INT PRIMARY KEY AUTO_INCREMENT,
+    `tanggal_rapat` DATE NOT NULL,
+    `topik` VARCHAR(200) NOT NULL,
+    `hasil_keputusan` VARCHAR(200) NOT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 9. Tabel Agenda Kegiatan RT (agenda)
