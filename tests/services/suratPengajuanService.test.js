@@ -23,9 +23,10 @@ function submission(kategoriId, overrides = {}) {
 
 describe("Surat Pengantar", () => {
     it("membuat snapshot kepala keluarga dan tidak berubah ketika data master diedit", async () => {
+        const rawNik = "3273010101900001";
         const fixture = await seedFamilyWithAccount(globalThis.testDb, {
             warga: {
-                nik: encryptEmails("3273010101900001"),
+                nik: encryptEmails(rawNik),
                 tglLahir: encryptEmails("1990-01-01"),
                 nama: "Budi Snapshot",
             },
@@ -49,7 +50,7 @@ describe("Surat Pengantar", () => {
             kategori_id: kategori.id,
             nama_lengkap: "Budi Snapshot",
             tanggal_lahir: expect.anything(),
-            no_ktp: "3273010101900001",
+            no_ktp: rawNik,
             alamat: "Jalan Snapshot Nomor 1",
             agama: "Islam",
             pekerjaan: "Wiraswasta",
@@ -68,6 +69,8 @@ describe("Surat Pengantar", () => {
             globalThis.testDb,
         );
         expect(detail.nama_lengkap).toBe("Budi Snapshot");
+        expect(detail.no_ktp).toBe(rawNik);
+        expect(detail.no_ktp).not.toContain("*");
     });
 
     it("menolak kategori tidak aktif/tidak ada dan seluruh field warga-supplied yang kosong", async () => {
@@ -86,7 +89,10 @@ describe("Surat Pengantar", () => {
     });
 
     it("membatasi detail warga berdasarkan family dan mem-paginate daftar staff", async () => {
-        const owner = await seedFamilyWithAccount(globalThis.testDb);
+        const rawNik = "3273010202900002";
+        const owner = await seedFamilyWithAccount(globalThis.testDb, {
+            warga: { nik: encryptEmails(rawNik) },
+        });
         const outsider = await seedFamilyWithAccount(globalThis.testDb);
         const admin = await seedAccount(globalThis.testDb, { role: "admin" });
         const kategori = await createSuratKategoriService(
@@ -112,11 +118,15 @@ describe("Surat Pengantar", () => {
             globalThis.testDb,
         );
         expect(listed.items.map((item) => item.id)).toContain(created.id);
+        expect(listed.items.find((item) => item.id === created.id)?.no_ktp).toBe(rawNik);
         expect(listed.pagination).toMatchObject({ page: 1, limit: 10, total: 1, total_pages: 1 });
     });
 
     it("approve menyimpan actor/waktu dan status final tidak dapat diproses ulang", async () => {
-        const fixture = await seedFamilyWithAccount(globalThis.testDb);
+        const rawNik = "3273010303900003";
+        const fixture = await seedFamilyWithAccount(globalThis.testDb, {
+            warga: { nik: encryptEmails(rawNik) },
+        });
         const admin = await seedAccount(globalThis.testDb, { role: "admin" });
         const rt = await seedAccount(globalThis.testDb, { role: "rt" });
         const kategori = await createSuratKategoriService(
@@ -135,7 +145,7 @@ describe("Surat Pengantar", () => {
             { id: rt.id, role: "rt" },
             globalThis.testDb,
         );
-        expect(approved).toMatchObject({ status: "disetujui", approved_by: rt.id });
+        expect(approved).toMatchObject({ status: "disetujui", approved_by: rt.id, no_ktp: rawNik });
         expect(approved.approved_at).toBeTruthy();
 
         await expect(rejectSuratPengajuanService(

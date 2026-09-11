@@ -22,7 +22,8 @@
     "migrate:surat-pengajuan": "node migrations/20260904_create_surat_pengajuan.js",
     "migrate:notulen-rapat": "node migrations/20260904_create_notulen_rapat.js",
     "migrate:surat-keperluan": "node migrations/20260904_seed_surat_kategori_keperluan.js",
-    "migrate": "node migrations/20260819_migrate_to_family_scope.js"
+    "migrate": "node migrations/20260819_migrate_to_family_scope.js",
+    "db:truncate": "node scripts/truncateTables.js"
   },
   "dependencies": {
     "@prisma/client": "^7.8.0",

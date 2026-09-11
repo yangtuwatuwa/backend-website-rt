@@ -13,7 +13,9 @@ const LETTER_SELECT = `
         l.jenis_kelamin,
         l.tempat_lahir,
         l.tanggal_lahir,
-        l.no_ktp,
+        -- NIK snapshot sengaja dikirim utuh ke FE pada endpoint surat yang
+        -- sudah dilindungi JWT/RBAC; jangan gunakan masking pada field ini.
+        CAST(l.no_ktp AS CHAR) AS no_ktp,
         l.alamat,
         l.agama,
         l.pekerjaan,
