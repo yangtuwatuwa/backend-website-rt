@@ -12,6 +12,7 @@
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test:db:setup": "node scripts/setupTestDatabase.js",
     "reset-db": "node utils/resetDb.js",
+    "db:reset-rt": "node utils/resetDb.js",
     "migrate-ipl": "node utils/migrateIplBills.js",
     "migrate:rapel": "node migrations/20260819_migrate_payments_to_rapel.js",
     "migrate:family": "node migrations/20260819_migrate_to_family_scope.js",
